@@ -67,4 +67,6 @@ Date : 25.10.2022
             3. post /giris
             4. post /kamikaze_bilgisi
     -   **Example**
-        python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi
+        ```
+            python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi
+        ```
