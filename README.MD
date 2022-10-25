@@ -5,15 +5,21 @@ Date : 25.10.2022
 STEPS TO FOLLOW
 ===============
  1. **Before proceeding create a virtual environment with:**  
-    - python -m venv yourenvironmentname
+    ```
+        python -m venv yourenvironmentname
+    ```
  2. **Then activate your environment with:**  
-    - yourenvironmentname\Scripts\activate 
+    ```
+        yourenvironmentname\Scripts\activate 
+    ```
  3. **After that install the dependencies with:** 
-    - pip install -r requirements.txt
+    ```
+        pip install -r requirements.txt
+    ```
  4. **After installing all dependencies clone yolov5 from github with and create your dataset.yaml file follow the steps:**
     ```
-     git clone https://github.com/ultralytics/yolov5.git
-     cd yolov5
+        git clone https://github.com/ultralytics/yolov5.git
+        cd yolov5
     ```
     - **create a new file named as dataset.yaml and copy paste following lines:**
         ```
@@ -38,4 +44,6 @@ STEPS TO FOLLOW
             --nosave and --cache    will speed up the training process
         ```
 ### **Use below command to train yolov5 model**:
-    python train.py --img 640 --batch 16 --epochs 100 --data dataset.yaml --weights yolov5s.pt --nosave --cache 
+    ```
+        python train.py --img 640 --batch 16 --epochs 100 --data dataset.yaml --weights yolov5s.pt --nosave --cache 
+    ```
