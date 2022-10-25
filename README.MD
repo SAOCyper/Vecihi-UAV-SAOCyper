@@ -1,7 +1,8 @@
+```
 Author : Mert Ünübol
 Date : 25.10.2022
-
-#**STEPS TO FOLLOW**
+```
+#STEPS TO FOLLOW
 -**Before proceeding create a virtual environment with** : python -m venv yourenvironmentname
 -**Then activate your environment with** : yourenvironmentname\Scripts\activate 
 -**After that install the dependencies with** : pip install -r requirements.txt
