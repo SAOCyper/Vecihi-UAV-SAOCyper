@@ -3,10 +3,10 @@ Author : Mert Ünübol
 Date : 25.10.2022
 ```
 #STEPS TO FOLLOW
--**Before proceeding create a virtual environment with** : python -m venv yourenvironmentname
--**Then activate your environment with** : yourenvironmentname\Scripts\activate 
--**After that install the dependencies with** : pip install -r requirements.txt
--**After installing all dependencies clone yolov5 from github with and create your dataset.yaml file follow the steps**: 
+ 1.**Before proceeding create a virtual environment with** : python -m venv yourenvironmentname
+ 2.**Then activate your environment with** : yourenvironmentname\Scripts\activate 
+ 3.**After that install the dependencies with** : pip install -r requirements.txt
+ 4.**After installing all dependencies clone yolov5 from github with and create your dataset.yaml file follow the steps**: 
     ```
     git clone https://github.com/ultralytics/yolov5.git
     cd yolov5
