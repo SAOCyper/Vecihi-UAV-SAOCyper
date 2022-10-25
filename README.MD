@@ -21,7 +21,7 @@ STEPS TO FOLLOW
         git clone https://github.com/ultralytics/yolov5.git
         cd yolov5
     ```
-    - **create a new file named as dataset.yaml and copy paste following lines:**
+    1. **create a new file named as dataset.yaml and copy paste following lines:**
         ```
             path: ../Glados_yolov5_plane_detection_training/plane_dataset  # dataset root dir
             train: images/train  # train images (relative to 'path') 128 images
@@ -34,7 +34,7 @@ STEPS TO FOLLOW
   
 
 ## **YOLOV5 training parameters**
-    - **parameters**:
+    parameters:
         ```
             --data dataset.yaml It has path locations of our dataset images and labels 
             --epochs    is number of turns that our train functions training time.Usually 1000 would be good but training would too long
@@ -44,6 +44,6 @@ STEPS TO FOLLOW
             --nosave and --cache    will speed up the training process
         ```
 ### **Use below command to train yolov5 model**:
-    ```
-        python train.py --img 640 --batch 16 --epochs 100 --data dataset.yaml --weights yolov5s.pt --nosave --cache 
-    ```
+    
+    python train.py --img 640 --batch 16 --epochs 100 --data dataset.yaml --weights yolov5s.pt --nosave --cache 
+    
