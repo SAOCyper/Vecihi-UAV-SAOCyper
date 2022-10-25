@@ -2,7 +2,7 @@
 Author : Mert Ünübol
 Date : 25.10.2022
 ```
-STEPS TO FOLLOW
+**STEPS TO FOLLOW**
 ===============
  1. **Before proceeding create a virtual environment with:**  
     ```
@@ -46,3 +46,25 @@ STEPS TO FOLLOW
     
     python train.py --img 640 --batch 16 --epochs 100 --data dataset.yaml --weights yolov5s.pt --nosave --cache 
     
+**SocketServer Usage**
+==================
+1. app-server.py
+    - Connect to the server with the ip of your computer's  and with port = 65432
+    - ```
+        python app-server.py 192.168.1.102 65432 
+      ```
+2. app-client.py
+    - **Available Requests**
+        1. GET
+            1. get /sunucusaati
+            2. get /qr_koordinati
+            3. get morpheus
+            4. get ring
+            5. get \U0001f436
+        2. POST
+            1. post /telemetri_gonder
+            2. post /kilitlenme_bilgisi
+            3. post /giris
+            4. post /kamikaze_bilgisi
+    -   **Example**
+        python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi
