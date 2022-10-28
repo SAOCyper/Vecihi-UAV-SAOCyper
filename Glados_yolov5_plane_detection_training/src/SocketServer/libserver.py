@@ -6,13 +6,7 @@ import struct
 from datetime import *
 
 
-request_get = {
-    "morpheus": "Follow the white rabbit. \U0001f430",
-    "ring": "In the caves beneath the Misty Mountains. \U0001f48d",
-    "\U0001f436": "\U0001f43e Playing ball! \U0001f3d0",
-    "/sunucusaati":"Saat:{} ,Dakika:{} ,Saniye:{} ,MiliSaniye:15".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S')),
-    "/qr_koordinati" : "qrEnlem:42.6543 , qrBoylam:52.1424",
-}
+
 class AppServerStorage:
     def _StoreData(telemetri_veri=[{},{}],kilitlenme_veri=[{},{}],giriş_veri=[{},{}],kamikaze_veri=[{},{}]):
             request_post = {
@@ -102,6 +96,13 @@ class Message:
 
     def _create_response_json_content(self):
         action = self.request.get("action")
+        request_get = {
+            "morpheus": "Follow the white rabbit. \U0001f430",
+            "ring": "In the caves beneath the Misty Mountains. \U0001f48d",
+            "\U0001f436": "\U0001f43e Playing ball! \U0001f3d0",
+            "/sunucusaati":"Saat:{} ,Dakika:{} ,Saniye:{} ,MiliSaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f')),
+            "/qr_koordinati" : "qrEnlem:42.6543 , qrBoylam:52.1424",
+        }
         if action == "get":
             query = self.request.get("value")
             answer = request_get.get(query) or f"No match for '{query}'."
