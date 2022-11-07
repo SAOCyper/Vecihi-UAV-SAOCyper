@@ -62,10 +62,10 @@ Date : 25.10.2022
             4. get ring
             5. get \U0001f436
         2. POST
-            1. post /telemetri_gonder
-            2. post /kilitlenme_bilgisi
-            3. post /giris
-            4. post /kamikaze_bilgisi
+            1. post /api/telemetri_gonder
+            2. post /api/kilitlenme_bilgisi
+            3. post /api/giris
+            4. post /api/kamikaze_bilgisi
     -   **Example**
         ```
             python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi

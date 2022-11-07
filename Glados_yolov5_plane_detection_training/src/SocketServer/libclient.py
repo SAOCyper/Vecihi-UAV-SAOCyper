@@ -66,9 +66,7 @@ class Message:
         tiow.close()
         return obj
 
-    def _create_message(
-        self, *, content_bytes, content_type, content_encoding
-    ):
+    def _create_message(self, *, content_bytes, content_type, content_encoding):
         jsonheader = {
             "byteorder": sys.byteorder,
             "content-type": content_type,
@@ -139,6 +137,7 @@ class Message:
             self.sock = None
 
     def queue_request(self):
+
         content = self.request["content"]
         content_type = self.request["type"]
         content_encoding = self.request["encoding"]

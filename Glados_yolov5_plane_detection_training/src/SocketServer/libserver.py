@@ -4,16 +4,21 @@ import json
 import io
 import struct
 from datetime import *
+from geopy.geocoders import Nominatim
+import geocoder
+import urllib
+import simplejson
+
 
 
 
 class AppServerStorage:
     def _StoreData(telemetri_veri=[{},{}],kilitlenme_veri=[{},{}],giriş_veri=[{},{}],kamikaze_veri=[{},{}]):
             request_post = {
-                "/telemetri_gonder":{"takım1":telemetri_veri[0],"takım2":telemetri_veri[1]},
-                "/kilitlenme_bilgisi":{"takım1":kilitlenme_veri[0],"takım2":kilitlenme_veri[1]},
-                "/giris":{"takım1":giriş_veri[0],"takım2":giriş_veri[1]},
-                "/kamikaze_bilgisi":{"takım1":kamikaze_veri[0],"takım2":kamikaze_veri[1]}
+                "/telemetri_gonder":{"takim1":telemetri_veri[0],"takim2":telemetri_veri[1]},
+                "/kilitlenme_bilgisi":{"takim1":kilitlenme_veri[0],"takim2":kilitlenme_veri[1]},
+                "/giris":{"takım1":giriş_veri[0],"takim2":giriş_veri[1]},
+                "/kamikaze_bilgisi":{"takim1":kamikaze_veri[0],"takim2":kamikaze_veri[1]}
             }
             print(request_post.get("/telemetri_gonder"))
             return request_post 
@@ -28,7 +33,9 @@ class Message:
         self.jsonheader = None
         self.request = None
         self.response_created = False
-
+        self.googleGeocodeUrl = 'http://maps.googleapis.com/maps/api/geocode/json?'
+        self.geolocator = Nominatim(user_agent="eemertunubol@gmail.com")
+        self.location = self.geolocator.geocode("Anıttepe Mahallesi Gülseren Sokak 20/3 Turkey")
     def _set_selector_events_mask(self, mode):
         """Set selector to listen for events: mode is 'r', 'w', or 'rw'."""
         if mode == "r":
@@ -93,95 +100,46 @@ class Message:
         message_hdr = struct.pack(">H", len(jsonheader_bytes))
         message = message_hdr + jsonheader_bytes + content_bytes
         return message
+    def get_coordinates(self,query, from_sensor=False):
+        query = query.encode('utf-8')
+        params = {
+            'address': query,
+            'sensor': "true" if from_sensor else "false"
+        }
+        url = self.googleGeocodeUrl + urllib.parse.urlencode(params)
+        json_response = urllib.request.urlopen(url)
+        response = simplejson.loads(json_response.read())
+        if response['results']:
+            location = response['results'][0]['geometry']['location']
+            latitude, longitude = location['lat'], location['lng']
+            print( query , latitude, longitude)
+        else:
+            latitude, longitude = None, None
+            print( query, "<no results>")
+        return latitude, longitude
 
     def _create_response_json_content(self):
         action = self.request.get("action")
+        location =self.get_coordinates("Anittepe Mahallesi Gulseren Sokak Funda Apartmani 20/3 Ankara ")
+        print(location)
         request_get = {
             "morpheus": "Follow the white rabbit. \U0001f430",
             "ring": "In the caves beneath the Misty Mountains. \U0001f48d",
             "\U0001f436": "\U0001f43e Playing ball! \U0001f3d0",
             "/sunucusaati":"Saat:{} ,Dakika:{} ,Saniye:{} ,MiliSaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f')),
-            "/qr_koordinati" : "qrEnlem:42.6543 , qrBoylam:52.1424",
+            "/qr_koordinati" : location,
         }
         if action == "get":
             query = self.request.get("value")
             answer = request_get.get(query) or f"No match for '{query}'."
             content = {"result": answer}
         elif action == "post":
-            query = self.request.get("value")
-            telemetry_data=[{
-                            "takim_numarasi": 1,
-                            "IHA_enlem": 43.576546,
-                            "IHA_boylam": 22.385421,
-                            "IHA_irtifa": 100,
-                            "IHA_dikilme": 5,
-                            "IHA_yonelme": 256,
-                            "IHA_yatis": 0,
-                            "IHA_hiz": 223,
-                            "IHA_batarya": 20,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 315,
-                            "Hedef_merkez_Y": 220,
-                            "Hedef_genislik": 12,
-                            "Hedef_yukseklik": 46,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 1,
-                            "saniye": 23,
-                            "milisaniye": 507
-                            }
-                            },
-                            {
-                            "takim_numarasi": 1,
-                            "IHA_enlem": 43.654352,
-                            "IHA_boylam": 22.31245421,
-                            "IHA_irtifa": 105,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            }]
-            lock_on_data = [{"kilitlenmeBaslangicZamani": {
-                                "saat": 19,
-                                "dakika": 1,
-                                "saniye": 23,
-                                "milisaniye": 507
-                                },
-                                "kilitlenmeBitisZamani": {
-                                "saat": 19,
-                                "dakika": 1,
-                                "saniye": 45,
-                                "milisaniye": 236
-                                },
-                                "otonom_kilitlenme": 0},
-                                {"kilitlenmeBaslangicZamani": {
-                                "saat": 19,
-                                "dakika": 2,
-                                "saniye": 35,
-                                "milisaniye": 234
-                                },
-                                "kilitlenmeBitisZamani": {
-                                "saat": 19,
-                                "dakika": 3,
-                                "saniye": 10,
-                                "milisaniye": 236
-                                },
-                                "otonom_kilitlenme": 1}]
-            answer=AppServerStorage._StoreData(telemetri_veri=telemetry_data,kilitlenme_veri=lock_on_data)
+            sent = self.request.get("sent")
+            value = self.request.get("value")
+            if value == '/api/telemetri_gonder':
+                answer=AppServerStorage._StoreData(telemetri_veri=sent)
+            elif value == '/api/kilitlenme_bilgisi':
+                answer=AppServerStorage._StoreData(kilitlenme_veri=sent)
             content = {"result": answer}
         else:
             content = {"result": f"Error: invalid action '{action}'."}
