@@ -27,7 +27,7 @@ P = np.zeros(ns+1)   # proportional
 I = np.zeros(ns+1)   # integral
 D = np.zeros(ns+1)   # derivative
 sp = np.zeros(ns+1)  # set point
-sp[25:] = 10
+sp[25:] = 20
 
 # PID (starting point)
 Kc = 1.0/Kp
@@ -40,7 +40,7 @@ tauI = tauI / 2
 tauD = 1.0
 
 # Upper and Lower limits on OP
-op_hi = 10.0
+op_hi = 20.0
 op_lo = 0.0
 
 # loop through time steps    
@@ -74,6 +74,6 @@ plt.plot(t,sp,'k-',linewidth=2)
 plt.plot(t,pv,'b--',linewidth=3)
 plt.legend(['Set Point (SP)','Process Variable (PV)'],loc='best')
 plt.ylabel('Process')
-plt.ylim([-0.1,12])
+plt.ylim([-0.1,25])
 plt.xlabel('Time')
 plt.show()
