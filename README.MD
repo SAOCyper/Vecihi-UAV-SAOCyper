@@ -70,3 +70,9 @@ Date : 25.10.2022
         ```
             python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi
         ```
+
+**Otopilot**
+==================
+1. python otopilot.py
+    - Get horizontal and total angle for 2 vectors in 3D space
+    
