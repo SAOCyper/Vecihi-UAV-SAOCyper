@@ -13,6 +13,7 @@ class Decider():
         self.result_list = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         self.enemy_list = []
         self.is_initialized = False
+        self.sorted_list_counter = 0
     def set_enemy_list(self,incoming_data:list,our_location:list):
         our_lat = our_location[0]
         our_lng = our_location[1]
@@ -49,9 +50,9 @@ class Decider():
                 #self.corresponding_enemy_list.pop(b)
             b = b+1
         print(self.corresponding_enemy_list)
-        self.predict_plane_roads()
+        self.get_characteristics()
 
-    def predict_plane_roads(self) ->dict:
+    def get_characteristics(self) ->dict:
         """From all gps inputs it is checking all planes for 
         if they are closing on us or not and returning an boolean dictionary
 
@@ -62,6 +63,7 @@ class Decider():
         Returns:
             dict: Boolean Dictionary filled with condition flags
         """
+        priority_attached_list = []
         behaviour_dict = {}
         c = 0
         is_approaching = False
@@ -69,6 +71,11 @@ class Decider():
         is_in_watch_list = False
         is_dangerous = False
         avoid_immediate = False
+        tag_1 = False
+        tag_2 = False
+        tag_3 = False
+        sorted_distance_list = self.distance_sort()
+           
         for enemy in self.corresponding_enemy_list:
             horizantal_angle_change = 0
             total_angle_change = 0
@@ -120,16 +127,80 @@ class Decider():
                                 is_in_watch_list = True
                                 is_dangerous = True
                     temp_dict = {"is_approaching":is_approaching,"is_watching":is_watching,"is_in_watch_list":is_in_watch_list,"is_dangerous":is_dangerous,"avoid_immediate":avoid_immediate}
-                    behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp_dict
+                    if self.sorted_list_counter <= 2 :
+                        if enemy[0]["enemy_id"] == sorted_distance_list[self.sorted_list_counter]["enemy_id"]:
+                            
+                            if self.sorted_list_counter == 0:
+                                temp2_dict = {"priority1":True ,"priority2":False,"priority3":False }
+                                temp3_dict = temp_dict | temp2_dict
+                                priority_attached_list.append(enemy[0]["enemy_id"])
+                            elif self.sorted_list_counter == 1:
+                                temp2_dict = {"priority1":False ,"priority2":True,"priority3":False }
+                                temp3_dict = temp_dict | temp2_dict
+                                priority_attached_list.append(enemy[0]["enemy_id"])
+                            elif self.sorted_list_counter == 2:
+                                temp2_dict = {"priority1":False ,"priority2":False,"priority3":True }
+                                temp3_dict = temp_dict | temp2_dict
+                                priority_attached_list.append(enemy[0]["enemy_id"])
+                            behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp3_dict
+                            self.sorted_list_counter = self.sorted_list_counter +1
+                        else : 
+                            behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp_dict   
+                    else:
+                        behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp_dict
+            c = c+1
+        c = 0
+        for info in sorted_distance_list:
+            if info["enemy_id"] not in priority_attached_list:
+                l = 0
+                for k in sorted_distance_list:
+                    if info["enemy_id"] == k["enemy_id"]:
+                        priority_config_index = l
+                        priority_attached_list.append(l)
+                        break
+                    l = l +1
+                if priority_config_index == 0:
+                    temp2_dict = {"priority1":True ,"priority2":False,"priority3":False }
+                elif priority_config_index == 1:
+                    temp2_dict = {"priority1":False ,"priority2":True,"priority3":False }
+                elif priority_config_index == 2:
+                    temp2_dict = {"priority1":False ,"priority2":False,"priority3":True }
+                behaviour_dict["enemy_id{}".format(info["enemy_id"])] = behaviour_dict["enemy_id{}".format(info["enemy_id"])] | temp2_dict
+                if len(priority_attached_list) == 3:
+                    break
             c = c+1
         print("**********************************")
-        print("**********************************")
+        print("**********Data Acquired************")
         print("**********************************")
         print(behaviour_dict)
-        
+        print(priority_attached_list)
         return behaviour_dict
+     
+    def distance_sort(self):
+        """Sorts distances from enemy list 
 
-
+        Returns:
+            list: Sorted distance list ascending
+        """
+        c = 0
+        distance_list = []
+        sorted_distance_list = [0,0,0,0,0,0,0,0,0,0,0,00,0,0,0,0,0]
+        for i in range(len(self.corresponding_enemy_list)):
+            distance_list.append(0)
+        for enemy in self.corresponding_enemy_list:
+            if enemy != []:
+                distance_list[c]= {"enemy_id":enemy[0]["enemy_id"],"horizantal_distance":enemy[0]["horizantal_distance"]}
+                #distance_list[c]= {"enemy_id":{"enemy_id":enemy[0]["enemy_id"],"horizantal_distance": enemy[0]["horizantal_distance"]} }
+            else:
+                distance_list[c] = {}
+                index_number = c
+            c = c+1     
+        if {} in distance_list:
+            distance_list.pop(index_number)
+        distance_list.sort(key=lambda x: int(str(int(x.get('horizantal_distance'))),0), reverse=False)
+        for i in range(3):
+            sorted_distance_list[i] = distance_list[i]
+        return sorted_distance_list
 
 
 
