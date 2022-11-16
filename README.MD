@@ -71,8 +71,11 @@ Date : 25.10.2022
             python app-client.py 192.168.1.102 65432 post /kamikaze_bilgisi
         ```
 
-**Otopilot**
+**PlaneController**
 ==================
-1. python otopilot.py
-    - Get horizontal and total angle for 2 vectors in 3D space
+## **Functions**
+1. Create list
+    It creates a list with a different telemetry datas from different planes.After that it creates an small area as a map for converting our latitude and longitude values to x and y coordinates.Reason for that map is as we live in a globe latitude and longitudes are arc values hence we can't convert them to coordinate values very well without using some sort of techniques.
+    This way is optimal way for me .After creating a map and obtaining our center point we can calculate x and y values of every plane and we can place them in our coordinate system.This way we can get => Q1,Q2,Q3,Q4.With comparing our own plane location change we can find our direction vector.
+    After some math equations we can find the distance difference between our plane and every plane.We can also calculate horizontal angles in order for our plane to automatically chase its prey.After getting all these informations.By comparing results from previous telemetry datas we can categorize other planes with respect to danger.If they are chasing us or not.We can use this catalog for escaping algorithm later.
     
