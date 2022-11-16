@@ -1,12 +1,12 @@
 import geopy.distance
 import math
-from math import sin, cos, sqrt, atan2, radians ,acos ,degrees
+from math import sin, cos, sqrt, atan2, radians ,acos ,degrees,atan
 from datetime import datetime
 import numpy as np
 
 class Decider():
-    def __init__(self,team_number:int):
-        self.auto = AutoPilot()
+    def __init__(self,team_number:int,starting_point:list):
+        self.auto = AutoPilot(starting_point =starting_point)
         self.team_number = team_number
         self.count = 0
         self.corresponding_enemy_list = []
@@ -31,8 +31,8 @@ class Decider():
             enemy_lng=enemy["IHA_boylam"]  
             enemy_alt=enemy["IHA_irtifa"]  
             enemy_id = enemy["takim_numarasi"]
-            horizantal_angle ,total_angle , horizantal_distance  = self.auto.angle_calc(our_lat,our_lng,our_alt,enemy_lat,enemy_lng,enemy_alt)
-            result_listed={"enemy_id":enemy_id,"horizantal_angle":horizantal_angle ,"total_angle":total_angle , "horizantal_distance":horizantal_distance }
+            total_angle, horizantal_angle , horizantal_distance ,turn_direction,alt_command  = self.auto.angle_calc(our_lat,our_lng,our_alt,enemy_lat,enemy_lng,enemy_alt)
+            result_listed={"enemy_id":enemy_id,"horizantal_angle":horizantal_angle ,"total_angle":total_angle , "horizantal_distance":horizantal_distance,"turn_direction":turn_direction,"alt_command":alt_command}
             self.corresponding_enemy_list[enemy_id - 1].append(result_listed)
             self.count = self.count +1
             if self.count >= 21:
@@ -49,8 +49,7 @@ class Decider():
                 break
                 #self.corresponding_enemy_list.pop(b)
             b = b+1
-        print(self.corresponding_enemy_list)
-        self.get_characteristics()
+        characteristics_list = self.get_characteristics()
 
     def get_characteristics(self) ->dict:
         """From all gps inputs it is checking all planes for 
@@ -60,6 +59,10 @@ class Decider():
         is_watching : True means this plane is entered for watchzone area
         is_in_watchlist : True means this plane is in now possible threats
         is_dangerous : True means there is a follower on us bail out
+        avoid_immediate : True means avoiding is first thing to consider 
+        priority1: If this flag exist in any enemy_id that enemy is the first priority
+        priority2: If this flag exist in any enemy_id that enemy is the second priority
+        priority3: If this flag exist in any enemy_id that enemy is the third priority
         Returns:
             dict: Boolean Dictionary filled with condition flags
         """
@@ -71,12 +74,12 @@ class Decider():
         is_in_watch_list = False
         is_dangerous = False
         avoid_immediate = False
-        tag_1 = False
-        tag_2 = False
-        tag_3 = False
         sorted_distance_list = self.distance_sort()
-           
+        
         for enemy in self.corresponding_enemy_list:
+            prev_distance_list = []
+            for i in range(len(enemy)+1):
+                prev_distance_list.append(0)
             horizantal_angle_change = 0
             total_angle_change = 0
             horizantal_distance_change = 0 
@@ -85,8 +88,10 @@ class Decider():
                     if enemy[i] != 0:
                         horizantal_angle_change = enemy[i]["horizantal_angle"] - horizantal_angle_change
                         total_angle_change = enemy[i]["total_angle"] - total_angle_change
-                        horizantal_distance_change = enemy[i]["horizantal_distance"] - horizantal_distance_change
-                if enemy[0]["horizantal_angle"] < 150:
+                        horizantal_distance_change = enemy[i]["horizantal_distance"] - prev_distance_list[i]
+                        prev_distance_list[i+1] = enemy[i]["horizantal_distance"]
+                del prev_distance_list
+                if enemy[0]["horizantal_angle"] < 360:
                     if horizantal_distance_change >0:
                         is_approaching = False
                         is_watching = False
@@ -106,7 +111,7 @@ class Decider():
                             is_dangerous = False
                             avoid_immediate = False
                         elif 15> horizantal_angle_change > 5 or -5 > horizantal_angle_change > -15 :
-                            if enemy[0]["horizantal_distance"] < 30:
+                            if enemy[-1]["horizantal_distance"] < 30:
                                 is_dangerous = True
                                 is_watching = True
                                 is_in_watch_list = True
@@ -116,7 +121,7 @@ class Decider():
                                 is_in_watch_list = True
                                 is_dangerous = False
                         elif 5 > horizantal_angle_change > -5:
-                            if enemy[0]["horizantal_distance"] < 30:
+                            if enemy[-1]["horizantal_distance"] < 30:
                                 avoid_immediate = True
                                 is_watching = True
                                 is_in_watch_list = True
@@ -184,7 +189,8 @@ class Decider():
         """
         c = 0
         distance_list = []
-        sorted_distance_list = [0,0,0,0,0,0,0,0,0,0,0,00,0,0,0,0,0]
+        fake_dict = {"fake":"null"}
+        sorted_distance_list = [1,2,3]
         for i in range(len(self.corresponding_enemy_list)):
             distance_list.append(0)
         for enemy in self.corresponding_enemy_list:
@@ -209,13 +215,15 @@ class Decider():
 
 class AutoPilot():
     
-    def __init__(self):
+    def __init__(self,starting_point:list):
 
         self.R = 6373.0
-        self.p0 = {"lat":43.54,"lng":22.35}
-        self.p1=  {"lat":43.60,"lng":22.40}
+        self.p0 = {"lat":39.860153,"lng":32.773298}
+        self.p1=  {"lat":39.844360,"lng":32.793870}
         self.generate_map(self.p0,self.p1)
-
+        self.start_x ,self.start_y = self.get_x_y_coordinates(starting_point[0],starting_point[1])
+        self.start_x = self.map_mid_x - self.start_x
+        self.start_y = (self.map_mid_y - self.start_y) * -1
     def generate_map(self,p0:dict,p1:dict):
         """Generates a small map for minimalizing the errors for calculating
             angle operations 
@@ -228,6 +236,7 @@ class AutoPilot():
         """
         self.map_start_x,self.map_start_y = self.get_x_y_coordinates(p0["lat"],p0["lng"])
         self.map_end_x,self.map_end_y = self.get_x_y_coordinates(p1["lat"],p1["lng"])
+        self.map_mid_x,self.map_mid_y = (self.map_end_x + self.map_start_x)/2 ,(self.map_end_y + self.map_start_y)/2 
         return True
     def get_x_y_coordinates(self,lat:float,lng:float):
         """Returns x and y coordinates for given latitude and longitude
@@ -240,23 +249,25 @@ class AutoPilot():
             float: converted x and y coordinates.
         """
         x = self.R * lng * cos((self.p0["lat"] + self.p1["lat"])/2)
+        x = x * -1
         y = self.R * lat
         return x ,y
-
+    def get_direction_vector(self,x_coordinates:float,y_coordinates:float):
+        delta_x=self.start_x - x_coordinates
+        delta_y=self.start_y - y_coordinates
+        if delta_x < 0 and delta_y < 0 :
+            our_direction = "Q1"
+        elif delta_x >0 and delta_y < 0 :
+            our_direction = "Q2"
+        elif delta_x > 0 and delta_y > 0:
+            our_direction = "Q3"
+        elif delta_x <0 and delta_y >0:
+            our_direction = "Q4"
+        plane_angle = math.degrees(atan(abs(delta_y)/abs(delta_x)))
+        return  plane_angle , our_direction
     def send_commands(self):
         self.angle_calc()
 
-    def angle_calc_different_method(self,enlem:float,boylam:float,irtifa:float,rakip_enlem:float,rakip_boylam:float,rakip_irtifa:int):
-        lat1 = rakip_enlem
-        lon1= rakip_boylam
-        lat2 = enlem
-        lon2= boylam
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
-        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        distance = self.R * c
-        print(distance)
     def angle_calc(self,enlem:float,boylam:float,irtifa:float,rakip_enlem:float,rakip_boylam:float,rakip_irtifa:int):
         """Calculates horizantal and total angle differences for two vector in 3D space.
 
@@ -275,44 +286,126 @@ class AutoPilot():
         self.us = (enlem,boylam)
         enemy_x , enemy_y = self.get_x_y_coordinates(rakip_enlem,rakip_boylam)
         us_x , us_y = self.get_x_y_coordinates(enlem,boylam)
-        enemy_x = enemy_x - self.map_start_x
-        enemy_y = enemy_y - self.map_start_y
-        us_x = us_x - self.map_start_x
-        us_y = us_y - self.map_start_y
-        horizantal_angle = 0
-        #Difference angle in horizantal 
-        diff_x = enemy_x - us_x
-        diff_y = enemy_y - us_y
-        if (diff_x > 0 and diff_y > 0) or (diff_x > 0 and diff_y < 0):
-            horizantal_angle = math.degrees(acos(diff_x/(sqrt((diff_x ** 2)+(diff_y ** 2)))))
-            if diff_x > 0 and diff_y > 0 :
-                print("Turn Left")
-            else:
-                print("Turn Right")
-        elif (diff_x < 0 and diff_y < 0) or (diff_x < 0 and diff_y > 0):
-            horizantal_angle = math.degrees(acos(diff_y/(sqrt((diff_x ** 2)+(diff_y ** 2)))))
-            if diff_x < 0 and diff_y < 0 : 
-                print("Turn Right")
-            else:
-                print("Turn Left")
+        #enemy_x = enemy_x - self.map_mid_x 
+        #enemy_y = enemy_y - self.map_mid_y
+        #us_x = self.map_mid_x - us_x
+        #us_y = (self.map_mid_y - us_y) * -1
+        Qdirection ,our_direction= self.get_direction_vector(us_x,us_y) 
+        mid_point_x = (self.map_end_x - self.map_start_x)/2
+        mid_point_y = (self.map_end_y - self.map_start_y)/2
+        Qbetween = math.degrees(atan(abs(enemy_y - us_y)/abs(enemy_x - us_x)))
+        #Qhorizontal = Qdirection + Qbetween + 90
+        Qrotate= 0
+        direction_x = enemy_x - us_x
+        direction_y = enemy_y - us_y
+        uDirection = "Right"
+        if direction_x > 0 and direction_y >0:
+            print("Enemy Region 1 direction")
+            if our_direction == "Q1":
+                if Qdirection>Qbetween:
+                    uDirection = "Right"
+                    Qrotate = Qdirection - Qbetween
+                else:
+                    uDirection = "Left"
+                    Qrotate = Qbetween - Qdirection
+            elif our_direction == "Q2":
+                uDirection = "Medium Right"
+                Qrotate = 180 - Qdirection - Qbetween
+            elif our_direction == "Q3":
+                if Qdirection >45:
+                    uDirection = "Strong Right"
+                    Qrotate = 180 -Qbetween + Qdirection
+                else :
+                    uDirection = "Strong Left"
+                    Qrotate = 180 +Qbetween - Qdirection
+            elif our_direction == "Q4":
+                uDirection = "Medium Left"
+                Qrotate = Qdirection +Qbetween
+        elif direction_x <0 and direction_y >0:
+            print("Enemy Region 2 direction")
+            if our_direction == "Q1":
+                uDirection = "Medium Left"
+                Qrotate = 180 - Qbetween - Qdirection
+            elif our_direction == "Q2":
+                if abs(direction_x)<abs(direction_y):
+                    uDirection = "Left"
+                    Qrotate = Qdirection - Qbetween
+                else:
+                    uDirection = "Right"
+                    Qrotate = Qbetween - Qdirection
+            elif our_direction == "Q3":
+                uDirection = "Medium Right"
+                Qrotate = Qbetween + Qdirection
+            elif our_direction == "Q4":
+                if Qdirection >45:
+                    uDirection = "Strong Right"
+                    Qrotate = 180 - Qdirection + Qbetween
+                else :
+                    uDirection = "Strong Left"
+                    Qrotate = 180 - Qbetween + Qdirection
+        elif direction_x <0 and direction_y <0:
+            print("Enemy Region 3 direction")
+            if our_direction == "Q1":
+                if Qdirection >45:
+                    uDirection = "Strong Left"
+                    Qrotate = 180 - Qdirection + Qbetween
+                else :
+                    uDirection = "Strong Right"
+                    Qrotate = 180 - Qbetween + Qdirection
+            elif our_direction == "Q2":
+                uDirection = "Medium Left"
+                Qrotate = Qbetween + Qdirection 
+            elif our_direction == "Q3":
+                if abs(direction_x)>abs(direction_y):
+                    uDirection = "Left"
+                    Qrotate = Qbetween - Qdirection
+                else:
+                    uDirection = "Right"
+                    Qrotate = Qdirection - Qbetween
+            elif our_direction == "Q4":
+               uDirection = "Medium Right"
+               Qrotate = 180 - Qbetween - Qdirection
+        elif direction_x >0 and direction_y < 0:
+            print("Enemy Region 4 direction")
+            if our_direction == "Q1":
+                uDirection = "Medium Right"
+                Qrotate = Qbetween + Qdirection
+            elif our_direction == "Q2": 
+                if Qdirection >45:
+                    uDirection = "Strong Right"
+                    Qrotate = 180 - Qdirection + Qbetween
+                else :
+                    uDirection = "Strong Left"
+                    Qrotate = 180 - Qbetween + Qdirection
+            elif our_direction == "Q3":
+                uDirection = "Medium Left"
+                Qrotate = 180 - Qdirection - Qbetween
+            elif our_direction == "Q4":
+                if abs(direction_x)>abs(direction_y):
+                    uDirection = "Right"
+                    Qrotate = Qbetween - Qdirection
+                else:
+                    uDirection = "Left"
+                    Qrotate = Qdirection - Qbetween
         diff_irtifa = rakip_irtifa - irtifa
+        alt_command = "null"
         if diff_irtifa >0:
-            print("Rise")
+            alt_command = "Rise"
         else:
-            print("Dive")
+            alt_command = "Dive"
         horizontal_difference=geopy.distance.geodesic(self.enemy, self.us).meters
 
         #Difference in total angle 
         angle = ((enemy_x * us_x)+(enemy_y*us_y)+(rakip_irtifa*irtifa))/(sqrt((enemy_x ** 2)+(enemy_y ** 2)+(rakip_irtifa **2)) * sqrt((us_x ** 2)+(us_y ** 2)+(irtifa ** 2)))
         angle_diff=math.degrees(acos(angle))
-        return angle_diff , horizantal_angle , horizontal_difference
+        return angle_diff , Qrotate , horizontal_difference , uDirection ,alt_command
 
 
 
 telemetry_data=[{
                             "takim_numarasi": 1,
-                            "IHA_enlem": 43.576546,
-                            "IHA_boylam": 22.385421,
+                            "IHA_enlem": 39.855008,
+                            "IHA_boylam": 32.781415,
                             "IHA_irtifa": 100,
                             "IHA_dikilme": 5,
                             "IHA_yonelme": 256,
@@ -334,8 +427,8 @@ telemetry_data=[{
                             },
                             {
                             "takim_numarasi": 2,
-                            "IHA_enlem": 43.584352,
-                            "IHA_boylam": 22.36245421,
+                            "IHA_enlem": 39.855805,
+                            "IHA_boylam": 32.782447,
                             "IHA_irtifa": 90,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -356,8 +449,31 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 2,
-                            "IHA_enlem": 43.584252,
-                            "IHA_boylam": 22.36245421,
+                            "IHA_enlem": 39.855660,
+                            "IHA_boylam": 32.782955,
+                            "IHA_irtifa": 90,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            }
+                            ,{
+                            "takim_numarasi": 2,
+                            "IHA_enlem":  39.85603012392855, 
+                            "IHA_boylam": 32.78145270553317,
                             "IHA_irtifa": 90,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -379,8 +495,8 @@ telemetry_data=[{
                             },
                             {
                             "takim_numarasi": 3,
-                            "IHA_enlem": 43.564352,
-                            "IHA_boylam": 22.36925421,
+                            "IHA_enlem": 39.855800,
+                            "IHA_boylam": 32.779700,
                             "IHA_irtifa": 185,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -399,10 +515,34 @@ telemetry_data=[{
                             "saniye": 35,
                             "milisaniye": 234
                             }
-                            },{
+                            },
+                            {
+                            "takim_numarasi": 3,
+                            "IHA_enlem": 39.855460,
+                            "IHA_boylam": 32.779308,
+                            "IHA_irtifa": 185,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            }
+                            ,{
                             "takim_numarasi": 4,
-                            "IHA_enlem": 43.578352,
-                            "IHA_boylam": 22.35245421,
+                            "IHA_enlem": 39.854099,
+                            "IHA_boylam": 32.779170,
                             "IHA_irtifa": 115,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -423,8 +563,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.614352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853818,
+                            "IHA_boylam": 32.783296,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -445,8 +585,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.615352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853660,
+                            "IHA_boylam": 32.782899,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -467,8 +607,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.616352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853569,
+                            "IHA_boylam": 32.782337,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -489,8 +629,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.620352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853439,
+                            "IHA_boylam": 32.782117,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -511,8 +651,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.621352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853404,
+                            "IHA_boylam": 32.781188,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -533,8 +673,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.622352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.853629,
+                            "IHA_boylam": 32.780364,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -555,8 +695,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.624352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.854019,
+                            "IHA_boylam": 32.779572,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -577,8 +717,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.628352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.854523,
+                            "IHA_boylam": 32.779184,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -599,8 +739,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.630352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.855125,
+                            "IHA_boylam": 32.779025,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -621,8 +761,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.631352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.855509,
+                            "IHA_boylam": 32.778273,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -643,8 +783,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.633352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.856190,
+                            "IHA_boylam": 32.779144,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -665,8 +805,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.635352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.856342,
+                            "IHA_boylam": 32.780047,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -687,8 +827,8 @@ telemetry_data=[{
                             }
                             },{
                             "takim_numarasi": 5,
-                            "IHA_enlem": 43.640352,
-                            "IHA_boylam": 22.34245421,
+                            "IHA_enlem": 39.856013,
+                            "IHA_boylam": 32.781053,
                             "IHA_irtifa": 120,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -706,145 +846,15 @@ telemetry_data=[{
                             "dakika": 2,
                             "saniye": 35,
                             "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.645352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.648352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.652352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.65514352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.657352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 43.659352,
-                            "IHA_boylam": 22.34245421,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            }]
+                            }}
+]
 """ auto=AutoPilot() """
 start = datetime.now()
 """ auto.angle_calc(43.576546,22.385421,100,43.594352,22.37245421,145) """
-drive = Decider(team_number=1)
-our_location = [43.584052,22.36245421,100]
+
+startpoint = [39.854818,32.781299,100]
+our_location = [39.855008,32.781415,100]
+drive = Decider(team_number=1,starting_point=startpoint)
 drive.set_enemy_list(incoming_data=telemetry_data,our_location=our_location)
 print(datetime.now() - start)
     
