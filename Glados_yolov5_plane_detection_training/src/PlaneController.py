@@ -4,17 +4,21 @@ from math import sin, cos, sqrt, atan2, radians ,acos ,degrees,atan
 from datetime import datetime
 import numpy as np
 
+prev_distance_list = {}
+counter = 0
+prev_coordinates = []
 class Decider():
     def __init__(self,team_number:int,starting_point:list):
         self.auto = AutoPilot(starting_point =starting_point)
         self.team_number = team_number
         self.count = 0
         self.corresponding_enemy_list = []
-        self.result_list = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         self.enemy_list = []
         self.is_initialized = False
+        self.prev_list_initialized = False
+        self.on_loop = False
         self.sorted_list_counter = 0
-    def set_enemy_list(self,incoming_data:list,our_location:list):
+    def flight_controller(self,incoming_data:list,our_location:list):
         our_lat = our_location[0]
         our_lng = our_location[1]
         our_alt = our_location[2] 
@@ -23,22 +27,22 @@ class Decider():
             for i in incoming_data:
                 if i["takim_numarasi"] != self.team_number:
                     self.enemy_list.append(i)
-            for a in range(len(self.enemy_list)):
-                self.corresponding_enemy_list.append([])
+            if self.on_loop == False :
+                for a in range(len(self.enemy_list)+1):
+                    self.corresponding_enemy_list.append([])
+                self.on_loop = True
         self.is_initialized = True # Set True for starter setup
         for enemy in self.enemy_list:
-            enemy_lat=enemy["IHA_enlem"]   
-            enemy_lng=enemy["IHA_boylam"]  
-            enemy_alt=enemy["IHA_irtifa"]  
-            enemy_id = enemy["takim_numarasi"]
-            total_angle, horizantal_angle , horizantal_distance ,turn_direction,alt_command  = self.auto.angle_calc(our_lat,our_lng,our_alt,enemy_lat,enemy_lng,enemy_alt)
-            result_listed={"enemy_id":enemy_id,"horizantal_angle":horizantal_angle ,"total_angle":total_angle , "horizantal_distance":horizantal_distance,"turn_direction":turn_direction,"alt_command":alt_command}
-            self.corresponding_enemy_list[enemy_id - 1].append(result_listed)
+            horizantal_angle , horizantal_distance ,turn_direction,alt_command,Qbetween,direction_x,direction_y  = self.auto.angle_calc(our_lat,our_lng,our_alt,enemy["IHA_enlem"],enemy["IHA_boylam"],enemy["IHA_irtifa"])
+            
+
+            result_listed={"enemy_id":enemy["takim_numarasi"],"horizantal_angle":horizantal_angle , "horizantal_distance":horizantal_distance,"turn_direction":turn_direction,"alt_command":alt_command,"Qbetween":Qbetween}
+            self.corresponding_enemy_list[enemy["takim_numarasi"] - 1].append(result_listed)
             self.count = self.count +1
             if self.count >= 21:
-                self.corresponding_enemy_list[enemy_id - 1].pop(0)
+                self.corresponding_enemy_list[enemy["takim_numarasi"] - 1].pop(0)
                 fake_array = 0
-                self.corresponding_enemy_list[enemy_id - 1].append(fake_array)
+                self.corresponding_enemy_list[enemy["takim_numarasi"] - 1].append(fake_array)
                 self.count = 20
         #Trim the array
         b = 0
@@ -47,9 +51,64 @@ class Decider():
             if b !=0 and i == check_flag:
                 del self.corresponding_enemy_list[b:]
                 break
-                #self.corresponding_enemy_list.pop(b)
             b = b+1
+        self.create_command()
+
+
+    def create_command(self):
         characteristics_list = self.get_characteristics()
+        in_range_count = 0
+        in_range_list = [0,0,0]
+        for enemy in self.corresponding_enemy_list:
+            if enemy != []:
+                if enemy[-1]["alt_command"] == "Dive":
+                    alt_command = "Rise"
+                elif enemy[-1]["alt_command"] == "Rise":
+                    alt_command = "Dive"
+                escape_angle=abs(90 - enemy[-1]["horizantal_angle"])
+
+                if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority1") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                    speed = 75
+                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                        speed = 100
+                    in_range_count = in_range_count + 1
+                    in_range_list[0]=[escape_angle,alt_command,speed]
+                elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority2") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                    speed = 75 
+                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                        speed = 100
+                    in_range_count = in_range_count + 1
+                    in_range_list[1]=[escape_angle,alt_command,speed]
+                elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority3") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                    speed = 75
+                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                        speed = 100
+                    in_range_count = in_range_count + 1
+                    in_range_list[2]=[escape_angle,alt_command,speed]
+                else : 
+                    continue
+        if in_range_count == 1:
+            if enemy[-1]["turn_direction"] == "Medium Right":
+                print("Turn {} to the left and {} and accelerate at speed %{} ".format(in_range_list[0][0],in_range_list[0][1],in_range_list[0][2]))
+            elif enemy[-1]["turn_direction"] == "Medium Left":
+                print("Turn {} to the right and {} and accelerate at speed %{} ".format(in_range_list[0][0],in_range_list[0][1],in_range_list[0][2]))
+            elif enemy[-1]["turn_direction"] == "Strong Right":
+                print("Turn {} to the right and {} and accelerate at speed %{} ".format(in_range_list[0][0],in_range_list[0][1],in_range_list[0][2]))
+            elif enemy[-1]["turn_direction"] == "Strong Left":
+                print("Turn {} to the left and {} and accelerate at speed %{} ".format(in_range_list[0][0],in_range_list[0][1],in_range_list[0][2]))
+            else:
+                print("{} and accelerate at speed %{} ".format(in_range_list[0][1],in_range_list[0][2]))
+        elif in_range_count == 2:
+            print("Slow down to the %10 speed and turn right")
+        elif in_range_count == 3:
+            print("Slow down to the %10 speed and turn right and dive")
+        self.enemy_list.clear()
+        self.is_initialized = False
+                    
+                
+                
+                
+                
 
     def get_characteristics(self) ->dict:
         """From all gps inputs it is checking all planes for 
@@ -75,23 +134,27 @@ class Decider():
         is_dangerous = False
         avoid_immediate = False
         sorted_distance_list = self.distance_sort()
-        
-        for enemy in self.corresponding_enemy_list:
-            prev_distance_list = []
-            for i in range(len(enemy)+1):
-                prev_distance_list.append(0)
+        global prev_distance_list
+        global counter
+        if self.prev_list_initialized == False:
+            for enemy in self.corresponding_enemy_list:
+                if enemy != []:
+                    prev_distance_list = prev_distance_list |  {"enemy_id{}".format(enemy[0]["enemy_id"]):0}
+            self.prev_list_initialized = True
+        for enemy in self.corresponding_enemy_list:  
             horizantal_angle_change = 0
             total_angle_change = 0
             horizantal_distance_change = 0 
+            
             if enemy != []:
-                for i in range(len(enemy)):
-                    if enemy[i] != 0:
-                        horizantal_angle_change = enemy[i]["horizantal_angle"] - horizantal_angle_change
-                        total_angle_change = enemy[i]["total_angle"] - total_angle_change
-                        horizantal_distance_change = enemy[i]["horizantal_distance"] - prev_distance_list[i]
-                        prev_distance_list[i+1] = enemy[i]["horizantal_distance"]
-                del prev_distance_list
-                if enemy[0]["horizantal_angle"] < 360:
+                
+                if enemy[-1] != 0:
+                    horizantal_angle_change = enemy[-1]["horizantal_angle"] - horizantal_angle_change
+                    """ total_angle_change = enemy[-1]["total_angle"] - total_angle_change """
+                    horizantal_distance_change = enemy[-1]["horizantal_distance"] - prev_distance_list["enemy_id{}".format(enemy[-1]["enemy_id"])]
+                    prev_distance_list["enemy_id{}".format(enemy[-1]["enemy_id"])] = enemy[-1]["horizantal_distance"]
+                
+                if enemy[-1]["horizantal_angle"] < 360:
                     if horizantal_distance_change >0:
                         is_approaching = False
                         is_watching = False
@@ -100,61 +163,55 @@ class Decider():
                         avoid_immediate = False
                     elif horizantal_distance_change < 0:
                         is_approaching = True
-                        if horizantal_angle_change > 15 or horizantal_angle_change < -15:
+                        if enemy[-1]["Qbetween"] > 15 or enemy[-1]["Qbetween"] < -15:
                             is_in_watch_list = False
                             is_watching = True
                             is_dangerous = False
                             avoid_immediate = False
-                        elif 25> horizantal_angle_change > 15 or -15 > horizantal_angle_change > -25 : 
+                        elif 25> enemy[-1]["Qbetween"] > 15 or -15 > enemy[-1]["Qbetween"] > -25 : 
                             is_in_watch_list = True
                             is_watching = True
                             is_dangerous = False
                             avoid_immediate = False
-                        elif 15> horizantal_angle_change > 5 or -5 > horizantal_angle_change > -15 :
-                            if enemy[-1]["horizantal_distance"] < 30:
+                        elif 15> enemy[-1]["Qbetween"]  or  enemy[-1]["Qbetween"] > -15 :
+                            if enemy[-1]["horizantal_distance"] < 120:
                                 is_dangerous = True
                                 is_watching = True
                                 is_in_watch_list = True
-                                avoid_immediate = False
-                            else:
-                                is_watching = True
-                                is_in_watch_list = True
-                                is_dangerous = False
-                        elif 5 > horizantal_angle_change > -5:
-                            if enemy[-1]["horizantal_distance"] < 30:
                                 avoid_immediate = True
+                            elif enemy[-1]["horizantal_distance"] < 200:
+                                is_dangerous = True
                                 is_watching = True
                                 is_in_watch_list = True
-                                is_dangerous = True
-                            else:
                                 avoid_immediate = False
+                            else : 
                                 is_watching = True
                                 is_in_watch_list = True
-                                is_dangerous = True
                     temp_dict = {"is_approaching":is_approaching,"is_watching":is_watching,"is_in_watch_list":is_in_watch_list,"is_dangerous":is_dangerous,"avoid_immediate":avoid_immediate}
                     if self.sorted_list_counter <= 2 :
-                        if enemy[0]["enemy_id"] == sorted_distance_list[self.sorted_list_counter]["enemy_id"]:
+                        if enemy[-1]["enemy_id"] == sorted_distance_list[self.sorted_list_counter]["enemy_id"]:
                             
                             if self.sorted_list_counter == 0:
                                 temp2_dict = {"priority1":True ,"priority2":False,"priority3":False }
                                 temp3_dict = temp_dict | temp2_dict
-                                priority_attached_list.append(enemy[0]["enemy_id"])
+                                priority_attached_list.append(enemy[-1]["enemy_id"])
                             elif self.sorted_list_counter == 1:
                                 temp2_dict = {"priority1":False ,"priority2":True,"priority3":False }
                                 temp3_dict = temp_dict | temp2_dict
-                                priority_attached_list.append(enemy[0]["enemy_id"])
+                                priority_attached_list.append(enemy[-1]["enemy_id"])
                             elif self.sorted_list_counter == 2:
                                 temp2_dict = {"priority1":False ,"priority2":False,"priority3":True }
                                 temp3_dict = temp_dict | temp2_dict
-                                priority_attached_list.append(enemy[0]["enemy_id"])
-                            behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp3_dict
+                                priority_attached_list.append(enemy[-1]["enemy_id"])
+                            behaviour_dict["enemy_id{}".format(enemy[-1]["enemy_id"])] = temp3_dict
                             self.sorted_list_counter = self.sorted_list_counter +1
                         else : 
-                            behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp_dict   
+                            behaviour_dict["enemy_id{}".format(enemy[-1]["enemy_id"])] = temp_dict   
                     else:
-                        behaviour_dict["enemy_id{}".format(enemy[0]["enemy_id"])] = temp_dict
+                        behaviour_dict["enemy_id{}".format(enemy[-1]["enemy_id"])] = temp_dict
             c = c+1
         c = 0
+        counter = counter + 1
         for info in sorted_distance_list:
             if info["enemy_id"] not in priority_attached_list:
                 l = 0
@@ -174,13 +231,13 @@ class Decider():
                 if len(priority_attached_list) == 3:
                     break
             c = c+1
-        print("**********************************")
-        print("**********Data Acquired************")
-        print("**********************************")
+
         print(behaviour_dict)
         print(priority_attached_list)
         return behaviour_dict
      
+
+    
     def distance_sort(self):
         """Sorts distances from enemy list 
 
@@ -189,7 +246,6 @@ class Decider():
         """
         c = 0
         distance_list = []
-        fake_dict = {"fake":"null"}
         sorted_distance_list = [1,2,3]
         for i in range(len(self.corresponding_enemy_list)):
             distance_list.append(0)
@@ -210,13 +266,12 @@ class Decider():
 
 
 
-
-
-
 class AutoPilot():
-    
+    """Calculates necessary angles , directions , x and y coordinates , 
+       altitude differences between 1 plane with other planes in a given set 
+       which consists of telemetry datas.
+    """
     def __init__(self,starting_point:list):
-
         self.R = 6373.0
         self.p0 = {"lat":39.860153,"lng":32.773298}
         self.p1=  {"lat":39.844360,"lng":32.793870}
@@ -224,6 +279,7 @@ class AutoPilot():
         self.start_x ,self.start_y = self.get_x_y_coordinates(starting_point[0],starting_point[1])
         self.start_x = self.map_mid_x - self.start_x
         self.start_y = (self.map_mid_y - self.start_y) * -1
+        self.estimation_initialized = False
     def generate_map(self,p0:dict,p1:dict):
         """Generates a small map for minimalizing the errors for calculating
             angle operations 
@@ -267,7 +323,8 @@ class AutoPilot():
         return  plane_angle , our_direction
     def send_commands(self):
         self.angle_calc()
-
+    def destination_estimate(self):
+        pass
     def angle_calc(self,enlem:float,boylam:float,irtifa:float,rakip_enlem:float,rakip_boylam:float,rakip_irtifa:int):
         """Calculates horizantal and total angle differences for two vector in 3D space.
 
@@ -282,19 +339,22 @@ class AutoPilot():
         Returns:
             float: Angle values
         """
+        
         self.enemy = (rakip_enlem,rakip_boylam)
         self.us = (enlem,boylam)
         enemy_x , enemy_y = self.get_x_y_coordinates(rakip_enlem,rakip_boylam)
         us_x , us_y = self.get_x_y_coordinates(enlem,boylam)
-        #enemy_x = enemy_x - self.map_mid_x 
-        #enemy_y = enemy_y - self.map_mid_y
-        #us_x = self.map_mid_x - us_x
-        #us_y = (self.map_mid_y - us_y) * -1
+        global prev_coordinates_enemy
+        enemy_raw_x=self.map_start_x - enemy_x
+        enemy_raw_y= (self.map_end_y - enemy_y) * -1
+        us_raw_x = self.map_start_x - us_x
+        us_raw_y = (self.map_end_y - us_y) * -1
         Qdirection ,our_direction= self.get_direction_vector(us_x,us_y) 
-        mid_point_x = (self.map_end_x - self.map_start_x)/2
-        mid_point_y = (self.map_end_y - self.map_start_y)/2
         Qbetween = math.degrees(atan(abs(enemy_y - us_y)/abs(enemy_x - us_x)))
-        #Qhorizontal = Qdirection + Qbetween + 90
+        Qenemy ,enemy_direction= self.get_direction_vector(enemy_raw_x,enemy_raw_y)
+        if self.estimation_initialized == False:
+            prev_coordinates_enemy = [(enemy_raw_x , enemy_raw_y),(us_raw_x , us_raw_y),Qenemy]
+            self.estimation_initialized = True
         Qrotate= 0
         direction_x = enemy_x - us_x
         direction_y = enemy_y - us_y
@@ -394,11 +454,70 @@ class AutoPilot():
         else:
             alt_command = "Dive"
         horizontal_difference=geopy.distance.geodesic(self.enemy, self.us).meters
+        error_rate_x ,error_rate_y= 10 , 10
+        
+        angle_error = (abs(Qenemy - prev_coordinates_enemy[2])/prev_coordinates_enemy[2]) * 100
+        if angle_error < 5.1 :
+            estimated_enemy_X = enemy_raw_x+(3*(enemy_raw_x - prev_coordinates_enemy[0][0]))
+            estimated_enemy_y = enemy_raw_y+(3*(enemy_raw_y - prev_coordinates_enemy[0][1]))
+            estimated_us_x = us_raw_x+(3*(us_raw_x - prev_coordinates_enemy[1][0]))
+            estimated_us_y = us_raw_y+(3*(us_raw_y - prev_coordinates_enemy[1][1]))
+            if estimated_enemy_X < 0 and estimated_us_x > 0 and estimated_enemy_y > 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,estimated_us_y)) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x <0 and estimated_enemy_y > 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,estimated_us_y)) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x > 0 and estimated_enemy_y < 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),estimated_us_y)) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x > 0 and estimated_enemy_y > 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x > 0 and estimated_enemy_y > 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,estimated_us_x)) * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,estimated_us_y)) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x <0 and estimated_enemy_y > 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X * -1 , estimated_us_x * -1))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,estimated_us_y)) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x > 0 and estimated_enemy_y < 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y * -1 ,estimated_us_y * -1 )) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x < 0 and estimated_enemy_y > 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x > 0 and estimated_enemy_y < 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),estimated_us_y)) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x > 0 and estimated_enemy_y > 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x < 0 and estimated_enemy_y < 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),estimated_us_y)) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x < 0 and estimated_enemy_y < 0 and estimated_us_y > 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),estimated_us_y)) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x < 0 and estimated_enemy_y > 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max(estimated_enemy_y,(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x > 0 and estimated_enemy_y < 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),estimated_us_x))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X > 0 and estimated_us_x < 0 and estimated_enemy_y < 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max(estimated_enemy_X,(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
+            elif estimated_enemy_X < 0 and estimated_us_x < 0 and estimated_enemy_y < 0 and estimated_us_y < 0:
+                error_rate_x = (abs(estimated_enemy_X - estimated_us_x)/max((estimated_us_x + abs(estimated_enemy_X - estimated_us_x)),(estimated_enemy_X + abs(estimated_enemy_X - estimated_us_x))))  * 100
+                error_rate_y = (abs(estimated_enemy_y - estimated_us_y)/max((estimated_us_y + abs(estimated_enemy_y - estimated_us_y)),(estimated_enemy_y + abs(estimated_enemy_y - estimated_us_y)))) * 100
 
+        if error_rate_x < 5 and error_rate_y < 5:
+            print("Collision Ahead")
+        prev_coordinates_enemy=[(enemy_raw_x,enemy_raw_y),(us_raw_x,us_raw_y),Qenemy]
         #Difference in total angle 
         angle = ((enemy_x * us_x)+(enemy_y*us_y)+(rakip_irtifa*irtifa))/(sqrt((enemy_x ** 2)+(enemy_y ** 2)+(rakip_irtifa **2)) * sqrt((us_x ** 2)+(us_y ** 2)+(irtifa ** 2)))
         angle_diff=math.degrees(acos(angle))
-        return angle_diff , Qrotate , horizontal_difference , uDirection ,alt_command
+        return  Qrotate , horizontal_difference , uDirection ,alt_command , Qbetween ,direction_x , direction_y ,
 
 
 
@@ -447,79 +566,11 @@ telemetry_data=[{
                             "saniye": 35,
                             "milisaniye": 234
                             }
-                            },{
-                            "takim_numarasi": 2,
-                            "IHA_enlem": 39.855660,
-                            "IHA_boylam": 32.782955,
-                            "IHA_irtifa": 90,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            }
-                            ,{
-                            "takim_numarasi": 2,
-                            "IHA_enlem":  39.85603012392855, 
-                            "IHA_boylam": 32.78145270553317,
-                            "IHA_irtifa": 90,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
                             },
                             {
                             "takim_numarasi": 3,
                             "IHA_enlem": 39.855800,
                             "IHA_boylam": 32.779700,
-                            "IHA_irtifa": 185,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },
-                            {
-                            "takim_numarasi": 3,
-                            "IHA_enlem": 39.855460,
-                            "IHA_boylam": 32.779308,
                             "IHA_irtifa": 185,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
@@ -583,11 +634,303 @@ telemetry_data=[{
                             "saniye": 35,
                             "milisaniye": 234
                             }
+                            }]
+a = [{
+                            "takim_numarasi": 1,
+                            "IHA_enlem": 39.855008,
+                            "IHA_boylam": 32.781415,
+                            "IHA_irtifa": 100,
+                            "IHA_dikilme": 5,
+                            "IHA_yonelme": 256,
+                            "IHA_yatis": 0,
+                            "IHA_hiz": 223,
+                            "IHA_batarya": 20,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 315,
+                            "Hedef_merkez_Y": 220,
+                            "Hedef_genislik": 12,
+                            "Hedef_yukseklik": 46,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 1,
+                            "saniye": 23,
+                            "milisaniye": 507
+                            }
+                            },{
+                            "takim_numarasi": 2,
+                            "IHA_enlem": 39.855660,
+                            "IHA_boylam": 32.782955,
+                            "IHA_irtifa": 98,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },
+                            {
+                            "takim_numarasi": 3,
+                            "IHA_enlem": 39.855460,
+                            "IHA_boylam": 32.779308,
+                            "IHA_irtifa": 185,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },{
+                            "takim_numarasi": 4,
+                            "IHA_enlem": 39.854354,
+                            "IHA_boylam": 32.779782,
+                            "IHA_irtifa": 115,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
                             },{
                             "takim_numarasi": 5,
                             "IHA_enlem": 39.853660,
                             "IHA_boylam": 32.782899,
-                            "IHA_irtifa": 120,
+                            "IHA_irtifa": 115,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            }]
+b = [{
+                            "takim_numarasi": 1,
+                            "IHA_enlem": 39.855008,
+                            "IHA_boylam": 32.781415,
+                            "IHA_irtifa": 100,
+                            "IHA_dikilme": 5,
+                            "IHA_yonelme": 256,
+                            "IHA_yatis": 0,
+                            "IHA_hiz": 223,
+                            "IHA_batarya": 20,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 315,
+                            "Hedef_merkez_Y": 220,
+                            "Hedef_genislik": 12,
+                            "Hedef_yukseklik": 46,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 1,
+                            "saniye": 23,
+                            "milisaniye": 507
+                            }
+                            },{
+                            "takim_numarasi": 2,
+                            "IHA_enlem":  39.856986, 
+                            "IHA_boylam": 32.781013,
+                            "IHA_irtifa": 103,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },
+                            {
+                            "takim_numarasi": 3,
+                            "IHA_enlem": 39.855298,
+                            "IHA_boylam": 32.779571,
+                            "IHA_irtifa": 185,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },{
+                            "takim_numarasi": 4,
+                            "IHA_enlem": 39.854643,
+                            "IHA_boylam": 32.780200,
+                            "IHA_irtifa": 115,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },{
+                            "takim_numarasi": 5,
+                            "IHA_enlem": 39.854244,
+                            "IHA_boylam": 32.781736,
+                            "IHA_irtifa": 110,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            }]
+c = [{
+                            "takim_numarasi": 1,
+                            "IHA_enlem": 39.855008,
+                            "IHA_boylam": 32.781415,
+                            "IHA_irtifa": 100,
+                            "IHA_dikilme": 5,
+                            "IHA_yonelme": 256,
+                            "IHA_yatis": 0,
+                            "IHA_hiz": 223,
+                            "IHA_batarya": 20,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 315,
+                            "Hedef_merkez_Y": 220,
+                            "Hedef_genislik": 12,
+                            "Hedef_yukseklik": 46,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 1,
+                            "saniye": 23,
+                            "milisaniye": 507
+                            }
+                            },{
+                            "takim_numarasi": 2,
+                            "IHA_enlem":  39.85603012392855, 
+                            "IHA_boylam": 32.78145270553317,
+                            "IHA_irtifa": 90,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },
+                            {
+                            "takim_numarasi": 3,
+                            "IHA_enlem": 39.855298,
+                            "IHA_boylam": 32.779571,
+                            "IHA_irtifa": 185,
+                            "IHA_dikilme": 6,
+                            "IHA_yonelme": 252,
+                            "IHA_yatis": 2,
+                            "IHA_hiz": 245,
+                            "IHA_batarya": 19,
+                            "IHA_otonom": 1,
+                            "IHA_kilitlenme": 1,
+                            "Hedef_merkez_X": 421,
+                            "Hedef_merkez_Y": 240,
+                            "Hedef_genislik": 143,
+                            "Hedef_yukseklik": 57,
+                            "GPSSaati": {
+                            "saat": 19,
+                            "dakika": 2,
+                            "saniye": 35,
+                            "milisaniye": 234
+                            }
+                            },{
+                            "takim_numarasi": 4,
+                            "IHA_enlem": 39.854643,
+                            "IHA_boylam": 32.780200,
+                            "IHA_irtifa": 115,
                             "IHA_dikilme": 6,
                             "IHA_yonelme": 252,
                             "IHA_yatis": 2,
@@ -627,234 +970,15 @@ telemetry_data=[{
                             "saniye": 35,
                             "milisaniye": 234
                             }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.853439,
-                            "IHA_boylam": 32.782117,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.853404,
-                            "IHA_boylam": 32.781188,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.853629,
-                            "IHA_boylam": 32.780364,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.854019,
-                            "IHA_boylam": 32.779572,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.854523,
-                            "IHA_boylam": 32.779184,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.855125,
-                            "IHA_boylam": 32.779025,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.855509,
-                            "IHA_boylam": 32.778273,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.856190,
-                            "IHA_boylam": 32.779144,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.856342,
-                            "IHA_boylam": 32.780047,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }
-                            },{
-                            "takim_numarasi": 5,
-                            "IHA_enlem": 39.856013,
-                            "IHA_boylam": 32.781053,
-                            "IHA_irtifa": 120,
-                            "IHA_dikilme": 6,
-                            "IHA_yonelme": 252,
-                            "IHA_yatis": 2,
-                            "IHA_hiz": 245,
-                            "IHA_batarya": 19,
-                            "IHA_otonom": 1,
-                            "IHA_kilitlenme": 1,
-                            "Hedef_merkez_X": 421,
-                            "Hedef_merkez_Y": 240,
-                            "Hedef_genislik": 143,
-                            "Hedef_yukseklik": 57,
-                            "GPSSaati": {
-                            "saat": 19,
-                            "dakika": 2,
-                            "saniye": 35,
-                            "milisaniye": 234
-                            }}
-]
-""" auto=AutoPilot() """
+                            }]
+telemetry_list = [telemetry_data,a,b,c]
+import time
 start = datetime.now()
-""" auto.angle_calc(43.576546,22.385421,100,43.594352,22.37245421,145) """
-
 startpoint = [39.854818,32.781299,100]
-our_location = [39.855008,32.781415,100]
+our_location = [[39.855008,32.781415,100],[39.85512328601099, 32.78198362544963,100],[39.85517270305381, 32.78279901694268,100],[39.85471971216288, 32.78420449438465,100]]
 drive = Decider(team_number=1,starting_point=startpoint)
-drive.set_enemy_list(incoming_data=telemetry_data,our_location=our_location)
+for i in range(4):
+    drive.flight_controller(incoming_data=telemetry_list[i],our_location=our_location[i])
+    time.sleep(0.987)
 print(datetime.now() - start)
     
