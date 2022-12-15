@@ -11,7 +11,8 @@ import simplejson
 
 i = 0
 
-def get_data(i):
+def get_data():
+        global i
         telemetry_data=[{
                                     "takim_numarasi": 1,
                                     "IHA_enlem": 39.854831,
@@ -801,10 +802,13 @@ def get_data(i):
                                     }]
         telemetry_list = [telemetry_data,a,b,c,d,e,f]
         #data_string = pickle.dumps([0,0])
-        data_string = [0,0]
+        data_string = None
         if i < 6:
             #data_string = pickle.dumps([telemetry_list[i],telemetry_list[i+1]])
             data_string = [telemetry_list[i],telemetry_list[i+1]]
+            i = i + 1
+        else :
+            i = 0
         return data_string
 
 class AppServerStorage:
@@ -914,22 +918,21 @@ class Message:
         return latitude, longitude
 
     def _create_response_json_content(self):
-        global i
         action = self.request.get("action")
         location =self.get_coordinates("Anittepe Mahallesi Gulseren Sokak Funda Apartmani 20/3 Ankara ")
         print(location)
         request_get = {
             "morpheus": "Follow the white rabbit. \U0001f430",
             "ring": "In the caves beneath the Misty Mountains. \U0001f48d",
-            "/api/telemetri_gonder": get_data(i=i),
+            "/api/telemetri_gonder": get_data(),
             "\U0001f436": "\U0001f43e Playing ball! \U0001f3d0",
             "/sunucusaati":"Saat:{} ,Dakika:{} ,Saniye:{} ,MiliSaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f')),
             "/qr_koordinati" : location,
         }
         if action == "get":
             query = self.request.get("value")
-            if query == "/api/telemetri_gonder":
-                i = i + 1
+            #if query == "/api/telemetri_gonder":
+            #    i = i + 1
             answer = request_get.get(query) or f"No match for '{query}'."
             content = {"result": answer}
         elif action == "post":

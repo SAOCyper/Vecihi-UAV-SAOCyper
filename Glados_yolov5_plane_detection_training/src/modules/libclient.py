@@ -84,11 +84,11 @@ class Message:
         content = self.response
         result = content.get("result")
         enemy_list =result
-        print(f"Got result: {result}")
+        #print(f"Got result: {result}")
 
     def _process_response_binary_content(self):
         content = self.response
-        print(f"Got response: {content!r}")
+        #print(f"Got response: {content!r}")
 
     def process_events(self, mask):
         global enemy_list
@@ -195,15 +195,15 @@ class Message:
         if self.jsonheader["content-type"] == "text/json":
             encoding = self.jsonheader["content-encoding"]
             self.response = self._json_decode(data, encoding)
-            print(f"Received response {self.response!r} from {self.addr}")
+            #print(f"Received response {self.response!r} from {self.addr}")
             self._process_response_json_content()
         else:
             # Binary or unknown content-type
             self.response = data
-            print(
+            """ print(
                 f"Received {self.jsonheader['content-type']} "
                 f"response from {self.addr}"
-            )
+            ) """
             self._process_response_binary_content()
         # Close when response has been processed
 

@@ -1,18 +1,10 @@
-import tkinter,socket, pickle
-import tkintermapview
-import os
+import tkinter,socket, pickle,tkintermapview,os,socket,sys,selectors,traceback,threading,sys,time,math,datetime,cv2
 from math import *
-import math
 from pyproj import Geod
-import threading,sys,time
-import sys
-import socket
-import selectors
-import traceback
-
 sys.path.insert(1, r'C:\Users\MERT ÜNÜBOL\Desktop\SİHA-Workspace\Glados_yolov5_plane_detection_training\src\modules')
 import telemetry_data
 import libclient
+our_telemetry = []
 team_number = 1
 sel = 0
 enemy_list  = []
@@ -22,93 +14,107 @@ p = 0
 prev_drawing = []
 drawing_initialized = False
 
-def create_post_value(value):
-    request_post = {
-    "/api/telemetri_gonder":telemetry_data.telemetry_data,
-    "/api/kilitlenme_bilgisi":telemetry_data.lock_on_data,
-    "/api/giris":telemetry_data.login,
-    "/api/kamikaze_bilgisi":telemetry_data.kamikaze_list,
-    }
-    sent = request_post[value]
-    return  sent
-def create_request(action, value):
-    if action == 'post':
-        sent = create_post_value(value=value)
-    else:
-        sent = "Nothing sent"
-    if action == "get" or action == "post":
-        return dict(
-            type="text/json",
-            encoding="utf-8",
-            content=dict(action=action, value=value ,sent = sent ),
-        )
-    else:
-        return dict(
-            type="binary/custom-client-binary-type",
-            encoding="binary",
-            content=bytes(action + value + sent, encoding="utf-8"),
-        )
+class ServerConnection:
+    def create_post_value(value):
+        request_post = {
+        "/api/telemetri_gonder":telemetry_data.telemetry_data,
+        "/api/kilitlenme_bilgisi":telemetry_data.lock_on_data,
+        "/api/giris":telemetry_data.login,
+        "/api/kamikaze_bilgisi":telemetry_data.kamikaze_list,
+        }
+        sent = request_post[value]
+        return  sent
+    def create_request(action, value):
+        if action == 'post':
+            sent = ServerConnection.create_post_value(value=value)
+        else:
+            sent = "Nothing sent"
+        if action == "get" or action == "post":
+            return dict(
+                type="text/json",
+                encoding="utf-8",
+                content=dict(action=action, value=value ,sent = sent ),
+            )
+        else:
+            return dict(
+                type="binary/custom-client-binary-type",
+                encoding="binary",
+                content=bytes(action + value + sent, encoding="utf-8"),
+            )
 
 
-def start_connection(host, port,action, request):
-    global sel
-    addr = (host, port)
-    print(f"Starting connection to {addr}")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(addr)
-    sock.setblocking(False)
-    sock.connect_ex(addr)
-    sel = selectors.DefaultSelector()
-    events =  selectors.EVENT_READ | selectors.EVENT_WRITE
-    message = libclient.Message(sel, sock, addr, request)
-    sel.register(sock, events, data=message)
+    def start_connection(host, port,action, request):
+        global sel
+        addr = (host, port)
+        print(f"Starting connection to {addr}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(addr)
+        sock.setblocking(False)
+        sock.connect_ex(addr)
+        sel = selectors.DefaultSelector()
+        events =  selectors.EVENT_READ | selectors.EVENT_WRITE
+        message = libclient.Message(sel, sock, addr, request)
+        sel.register(sock, events, data=message)
 
-def attempt_reconnect(func,*args,**kwargs):
-        MAX_RETRY=2
-        for i in range(MAX_RETRY):
-            try:
-                return_value=func(*args,**kwargs)
-                break
-            except Exception as e:
-                print("error"+str(e))
-                return_value=e
-                time.sleep(1)
-        return return_value
+    def attempt_reconnect(func,*args,**kwargs):
+            MAX_RETRY=2
+            for i in range(MAX_RETRY):
+                try:
+                    return_value=func(*args,**kwargs)
+                    break
+                except Exception as e:
+                    print("error"+str(e))
+                    return_value=e
+                    time.sleep(1)
+            return return_value
 
 
-def start_client():
-    global enemy_list
-    global prev_drawing
-    global drawing_initialized
-    HOST = "127.0.0.1"  # The server's hostname or IP address
-    PORT = 65432  # The port used by the server
-    addr = (HOST, PORT)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
-        s.connect_ex(addr)
-        while True:
-            s.sendall(b"200")
-            data = s.recv(4096)
-            if not data:
-                break
+    def start_client():
+        global enemy_list
+        global prev_drawing
+        global drawing_initialized
+        HOST = "127.0.0.1"  # The server's hostname or IP address
+        PORT = 65432  # The port used by the server
+        addr = (HOST, PORT)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((HOST, PORT))
+            s.connect_ex(addr)
+            while True:
+                s.sendall(b"200")
+                data = s.recv(4096)
+                if not data:
+                    break
+                
+                #data = json.loads(data)
+                enemy_list = pickle.loads(data)
+                if drawing_initialized == False:
+                    if enemy_list == [0,0]:
+                        drawing_initialized = False
+                    else:
+                        for i in range(len(enemy_list)):
+                            prev_drawing.append([])
+                            for j in enemy_list[i]:
+                                prev_drawing[i].append([0,0,0]) 
+                        drawing_initialized = True 
+                print(f"Received {enemy_list!r}")
+                if enemy_list != [0,0]:
+                    break
             
-            #data = json.loads(data)
-            enemy_list = pickle.loads(data)
-            if drawing_initialized == False:
-                if enemy_list == [0,0]:
-                    drawing_initialized = False
-                else:
-                    for i in range(len(enemy_list)):
-                        prev_drawing.append([])
-                        for j in enemy_list[i]:
-                            prev_drawing[i].append([0,0,0]) 
-                    drawing_initialized = True 
-            print(f"Received {enemy_list!r}")
-            if enemy_list != [0,0]:
-                break
-        
 
 class Window():
+    @staticmethod
+    def _dist(lat1, long1, lat2, long2):
+
+        # convert decimal degrees to radians 
+        lat1, long1, lat2, long2 = map(radians, [lat1, long1, lat2, long2])
+        # haversine formula 
+        dlon = long2 - long1 
+        dlat = lat2 - lat1 
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * asin(sqrt(a)) 
+        # Radius of earth in meters is 6378160
+        m = 6378160* c
+        return m
 
     @staticmethod
     def _set_watch_points(distance,angle,location,lat_change,lon_change,rotation):
@@ -141,9 +147,17 @@ class Window():
             new_longitude = location[1] + (distance_lon * m) / cos(location[0] * (pi / 180))
         p = p +1
         return [new_latitude,new_longitude]
+    
+    def _time(self):
+        time_format = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        self.time_label.config(text="Sunucu Saati:{}".format(time_format),font=("Arial",18))
+        self.time_label.after(10,self._time)
 
+    def _telemetry_label(self):
+        global our_telemetry
+        self.telemetry_label.config(text = our_telemetry,font=("Arial",16))
+        self.telemetry_label.after(10,self._telemetry_label)
     def __get_data(self):
-
         global enemy_list
         global prev_drawing
         global drawing_initialized
@@ -151,9 +165,8 @@ class Window():
         value = "/api/telemetri_gonder"
         host = "127.0.0.1"
         port = 65432
-        request = create_request(action, value)
-        start_connection(host, port,action,request)
-
+        request = ServerConnection.create_request(action, value)
+        ServerConnection.start_connection(host, port,action,request)
         try:
             while True:
                 events = sel.select(timeout=0)
@@ -183,51 +196,23 @@ class Window():
             print("Caught keyboard interrupt, exiting")
         finally:
             sel.close()
-
-    def _get_data(self):
-        global enemy_list
-        global prev_drawing
-        global drawing_initialized
-        HOST = "127.0.0.1"  # The server's hostname or IP address
-        PORT = 65432  # The port used by the server
-        addr = (HOST, PORT)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as self.s:
-            self.s.connect((HOST, PORT))
-            self.s.connect_ex(addr)
-            while True:
-                    self.s.sendall(b"200")
-                    data = self.s.recv(4096)
-                    if not data:
-                        print("Connection Closed")
-                        self.s.close()
-                        break
-                    
-                    #data = json.loads(data)
-                    enemy_list = pickle.loads(data)
-                    if drawing_initialized == False:
-                        if enemy_list == [0,0]:
-                            drawing_initialized = False
-                        else:
-                            for i in range(len(enemy_list)):
-                                prev_drawing.append([])
-                                for j in enemy_list[i]:
-                                    prev_drawing[i].append([0,0,0]) 
-                            drawing_initialized = True 
-                    print(f"Received {enemy_list!r}")
-                    if enemy_list != [0,0]:
-                        print("Connection Closed")
-                        self.s.close()
-                        break
-
+    def _getoptions(self):
+        selected_option = self.options.get()
+        return selected_option
+    def _getcamera(self):
+        cap = cv2.VideoCapture(0)
+        ret , frame = cap.read()
+        cv2.imshow('frame',frame)
+        self.camera.after(10,self._getcamera)
     def __init__(self):
         self.window_initialized = False
         
         self.mainWindow = tkinter.Tk()
-        self.mainWindow.title("Grid Demo")
-        self.mainWindow.geometry('1080x680+200+100')
+        self.mainWindow.title("HÜMA VECİHİ SİHA PANEL")
+        self.mainWindow.geometry('1240x750')
         self.mainWindow['padx'] = 8
 
-        label= tkinter.Label(self.mainWindow, text="Tkinter Grid Demo")
+        label= tkinter.Label(self.mainWindow, text="Vecihi HÜMA SİHA",font=("Arial",25))
         label.grid(row=0, column=0, columnspan=3)
 
         self.mainWindow.columnconfigure(0, weight=100)
@@ -237,9 +222,11 @@ class Window():
         self.mainWindow.columnconfigure(4, weight=1000)
         self.mainWindow.rowconfigure(0, weight=1)
         self.mainWindow.rowconfigure(1, weight=10)
-        self.mainWindow.rowconfigure(2, weight=1)
-        self.mainWindow.rowconfigure(3, weight=3)
+        self.mainWindow.rowconfigure(2, weight=10)
+        self.mainWindow.rowconfigure(3, weight=5)
         self.mainWindow.rowconfigure(4, weight=3)
+        self.mainWindow.rowconfigure(5, weight=3)
+        self.mainWindow.rowconfigure(6, weight=3)
 
         self.map_widget = tkintermapview.TkinterMapView(self.mainWindow,width=640,height=480,corner_radius=10)
         self.map_widget.set_position(39.856398, 32.780181)
@@ -249,67 +236,45 @@ class Window():
         self.map_widget.config(border=2, relief='sunken')
         listScroll = tkinter.Scrollbar(self.mainWindow, orient=tkinter.VERTICAL)
         listScroll.grid(row=1, column=1, sticky='nsw', rowspan=2)
+
+        # Create the list of options
+        options_list = ["Otonom Kalkış", "Otonom İt Dalaşı", "Kamikaze ", "Otonom İniş"]
+        self.options = tkinter.StringVar(master=self.mainWindow)
+        self.options.set("Select an operation")
+        self.operations = tkinter.OptionMenu(self.mainWindow,self.options,*options_list)
+        self.operations.config(width=15,height=3,background="lightblue",border=5)
+        self.operations.grid(row=2,column=4,sticky='sw')
+        
+        #####################
         
         
-        # frame for the radio buttons
-        optionFrame = tkinter.LabelFrame(self.mainWindow, text="File Details")
-        optionFrame.grid(row=1, column=2, sticky='ne')
-
-        rbValue = tkinter.IntVar()
-        rbValue.set(1)
-        # Radio buttons
-        radio1 = tkinter.Radiobutton(optionFrame, text="Filename", value=1, variable=rbValue)
-        radio2 = tkinter.Radiobutton(optionFrame, text="Path", value=2, variable=rbValue)
-        radio3 = tkinter.Radiobutton(optionFrame, text="Timestamp", value=3, variable=rbValue)
-        radio1.grid(row=0, column=0, sticky='w')
-        radio2.grid(row=1, column=0, sticky='w')
-        radio3.grid(row=2, column=0, sticky='w')
-
-        # Widget to display the result
-        resultLabel = tkinter.Label(self.mainWindow, text="Result")
-        resultLabel.grid(row=2, column=2, sticky='nw')
-        result = tkinter.Entry(self.mainWindow)
-        result.grid(row=2, column=2, sticky='sw')
-
+        self.time_label = tkinter.Label(self.mainWindow)
+        self.time_label.config(text="Sunucu Saati:",font=("Arial",22))
+        self.time_label.grid(row=0,column = 2)
+        self._time()
+        self.telemetry_label = tkinter.Label(self.mainWindow,wraplength=250)
+        self.telemetry_label.grid(row = 1,column=2)
+        self._telemetry_label()
         # Frame for the time spinners
         timeFrame = tkinter.LabelFrame(self.mainWindow, text="Time")
         timeFrame.grid(row=3, column=0, sticky='new')
-        # Time spinners
-        hourSpinner = tkinter.Spinbox(timeFrame, width=2, values=tuple(range(0, 24)))
-        minuteSpinner = tkinter.Spinbox(timeFrame, width=2, from_=0, to=59)
-        secondSpinner = tkinter.Spinbox(timeFrame, width=2, from_=0, to=59)
-        hourSpinner.grid(row=0, column=0)
-        tkinter.Label(timeFrame, text=':').grid(row=0, column=1)
-        minuteSpinner.grid(row=0, column=2)
-        tkinter.Label(timeFrame, text=':').grid(row=0, column=3)
-        secondSpinner.grid(row=0, column=4)
-        timeFrame['padx'] = 36
-
-        # Frame for the date spinners
-        dateFrame = tkinter.Frame(self.mainWindow)
-        dateFrame.grid(row=4, column=0, sticky='new')
-        # Date labels
-        dayLabel = tkinter.Label(dateFrame, text="Day")
-        monthLabel = tkinter.Label(dateFrame, text="Month")
-        yearLabel = tkinter.Label(dateFrame, text="Year")
-        dayLabel.grid(row=0, column=0, sticky='w')
-        monthLabel.grid(row=0, column=1, sticky='w')
-        yearLabel.grid(row=0, column=2, sticky='w')
-        # Date spinners
-        daySpin = tkinter.Spinbox(dateFrame, width=5, from_=1, to=31)
-        monthSpin = tkinter.Spinbox(dateFrame, width=5, values=("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
-        yearSpin = tkinter.Spinbox(dateFrame, width=5, from_=2000, to=2099)
-        daySpin.grid(row=1, column=0)
-        monthSpin.grid(row=1, column=1)
-        yearSpin.grid(row=1, column=2)
-
+        ##Camera
+        self.camera = tkinter.LabelFrame(self.mainWindow)
+        self.camera.config(width=30,height=20)
+        self.camera.grid(row =1,column= 4 )
+        #self._getcamera()
         # Buttons
         okButton = tkinter.Button(self.mainWindow, text="OK")
+        okButton.config(width=15,height= 3,background='darkgreen',border=10)
         cancelButton = tkinter.Button(self.mainWindow, text="Cancel", command=self.mainWindow.destroy)
-        okButton.grid(row=4, column=3, sticky='e')
-        cancelButton.grid(row=4, column=4, sticky='w')
+        cancelButton.config(width=15,height= 3,background='red',border=10)
+        okButton.grid(row=4, column=4, sticky='e')
+        cancelButton.grid(row=4, column=5, sticky='w')
+        self.submit_button = tkinter.Button(self.mainWindow,text='Komut Yolla',command=self._getoptions)
+        self.submit_button.config(width=16,height=3,background='brown',border=5)
+        self.submit_button.grid(row =3 , column= 4 ,sticky='sw')
         global team_number
-        self.map_widget.after(1000, self.update,team_number)
+        self.map_widget.after(200, self.update,team_number)
     
 
     def run(self):
@@ -318,6 +283,7 @@ class Window():
     def update(self,team_number):
         geodesic = Geod(ellps='WGS84')
         self.__get_data()
+        global our_telemetry
         global enemy_prev_list
         global coordinates_prev
         global window_initialized
@@ -338,7 +304,21 @@ class Window():
         enemy = enemy_list[0]
         enemy_prev2 = enemy_prev_list[1]
         enemy_prev1 = enemy_prev_list[0]
-        if enemy[0] != 0:
+        condition = True
+        try:
+            for a in enemy:
+                if a["takim_numarasi"] == team_number:
+                    our_telemetry = a
+            for b in enemy_prev1:
+                if b["takim_numarasi"] == team_number:
+                    dummy = "OK"
+        except Exception as e :
+            condition = False
+
+        if condition == True:
+            for a in enemy:
+                if a["takim_numarasi"] == team_number:
+                    our_telemetry = a
             if prev_drawing[0][0][0] != 0:
                 for i in range(len(enemy_list[0])):
                     for j in range(3):

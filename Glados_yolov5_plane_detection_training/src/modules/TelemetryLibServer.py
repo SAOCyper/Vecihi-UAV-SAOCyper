@@ -805,6 +805,8 @@ def get_data(i):
         if i < 6:
             #data_string = pickle.dumps([telemetry_list[i],telemetry_list[i+1]])
             data_string = [telemetry_list[i],telemetry_list[i+1]]
+        if i >6:
+            i = 0
         return data_string
 
 class AppServerStorage:

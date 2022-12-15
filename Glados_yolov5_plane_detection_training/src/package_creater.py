@@ -18,17 +18,22 @@ class TelemetryCreate():
                             "Hedef_genislik": 0,
                             "Hedef_yukseklik": 0}
         
-    def GPS_Saati(self):
-        self.gps_saat={"GPS_Saati":"Saat:{} , Dakika:{} ,Saniye:{} ,MiliSaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f'))}
+    def _GPS_Saati(self):
+        time_format = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        splitted = time_format.split(":")
+        splitted1 = splitted[2].split('.')
+        self.gps_saat = {"saat":splitted[0],"dakika":splitted[1],"saniye":splitted1[0],"milisaniye":splitted1[1]}
         return self.gps_saat
     def Kilitlenme_başlangıç(self):
-        self.lock_on_start = {"kilitlenmeBaslangicZamani":{"saat:{},dakika:{},saniye:{},milisaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f'))}}
+        time = self._GPS_Saati()
+        self.lock_on_start = {"kilitlenmeBaslangicZamani":{"saat:{},dakika:{},saniye:{},milisaniye:{}".format(time["saat"],time["dakika"],time["saniye"],time["milisaniye"])}}
         return self.lock_on_start
     def Kilitlenme_bitiş(self):
-        self.lock_on_finish = {"kilitlenmeBitisZamani":{"saat:{},dakika:{},saniye:{},milisaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f'))}}
+        time = self._GPS_Saati()
+        self.lock_on_finish = {"kilitlenmeBitisZamani":{"saat:{},dakika:{},saniye:{},milisaniye:{}".format(time["saat"],time["dakika"],time["saniye"],time["milisaniye"])}}
         return self.lock_on_finish
     def Iha_telemetri_bilgi(self,takım_numarası:int,iha_bilgiler:list):
-        self.GPS_Saati()
+        time = self._GPS_Saati()
         takım_numarası = {"takim_numarasi": takım_numarası}
         self.takım_numarasi = takım_numarası
         i = 0

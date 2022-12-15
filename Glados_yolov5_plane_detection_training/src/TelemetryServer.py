@@ -16,11 +16,6 @@ def accept_wrapper(sock):
     sel.register(conn, selectors.EVENT_READ, data=message)
 
 
-""" if len(sys.argv) != 3:
-    print(f"Usage: {sys.argv[0]} <host> <port>")
-    sys.exit(1) """
-
-#host, port = sys.argv[1], int(sys.argv[2])
 host = "127.0.0.1"
 port = 65432
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
