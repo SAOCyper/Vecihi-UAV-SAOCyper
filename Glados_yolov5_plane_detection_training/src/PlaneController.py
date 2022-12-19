@@ -20,8 +20,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from pathlib import Path
+import PIL.Image, PIL.ImageTk
 #Camera Global Paremeters
 frame = 0
+cap = 0
 temp_m1 = 0.1
 temp_m2 = 0.1
 start = 0
@@ -143,6 +145,10 @@ class ServerConnection:
                     break
             
 class Camera():
+    Angle = 0
+    Direction = 0
+    Time = 0
+    Success = 0
     @staticmethod
     def _GPS_Saati():
         time_format = datetime.now().strftime('%H:%M:%S.%f')[:-3]
@@ -193,10 +199,20 @@ class Camera():
             temp_m2 = m2
         angR = math.atan((temp_m2-temp_m1)/(1+(temp_m2*temp_m1)))
         angD = round(math.degrees(angR))
-    
+        direction = None
+        if pt2[1] < pt1[1] and pt2[0] > pt1[0]:
+            direction = "Q1"
+        elif pt2[1] < pt1[1] and pt2[0] < pt1[0]:
+            direction = "Q2"
+        elif pt2[1] > pt1[1] and pt2[0] < pt1[0]:
+            direction = "Q3"
+        elif pt2[1] > pt1[1] and pt2[0] > pt1[0]:
+            direction = "Q4"
+        angD = abs(angD)
         #cv2.putText(frame,str(angD),(pt1[0]-40,pt1[1]-20),cv2.FONT_HERSHEY_COMPLEX,
                     #1.5,(0,0,255),2)
-        return angD
+        return angD , direction
+    
     def detect(self):
         while True:
                 # Capture frame-by-frame
@@ -231,15 +247,18 @@ class Camera():
                         roi_color = frame[y:y+h, x:x+w]
                         end_cord_x = x + w
                         end_cord_y = y + h
-                        distance = self.distance_finder(self.focal_length_measured,self.KNOWN_WIDTH,w)
-                        #print("Distance is {} cm".format(distance))
+                        self.distance = self.distance_finder(self.focal_length_measured,self.KNOWN_WIDTH,w)
+                        #print("Distance is {} cm".format(self.distance))
                         framemid_x = int((end_cord_x + x)/2)
                         framemid_y = int((end_cord_y + y)/2)
                         dikey = ((end_cord_y - y)/rows)*100
                         yatay = ((end_cord_x - x)/cols)*100
                         point_list = [(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),(hitbox_midpointx-1,0)]
-                        angle = self.get_angle(point_list)
-                        print(angle)
+                        self.angle ,self.direction= self.get_angle(point_list)
+                        Camera.Angle = self.angle
+                        Camera.Direction = self.direction
+                        #print(self.direction,self.angle)
+
                         cv2.line(frame,(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),color = (255,255,255),thickness=2)
                         cv2.rectangle(frame, (x, y), (end_cord_x, end_cord_y), color=(0, 0, 255), thickness=2)
                         cv2.putText(frame,text="Dikey = %{:.2f}".format(dikey),org=(end_cord_x+10, y+15),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(22,159,230),thickness=2,lineType=cv2.LINE_AA)
@@ -250,18 +269,25 @@ class Camera():
                                     start = datetime.now()
                                     başlangıç_zamanı = Camera._GPS_Saati()
                                 diff = (datetime.now() - start).seconds
+                                if diff == 1 :
+                                    Camera.Success = False
                                 if diff == 2:
                                     kilitlenme =False
+                                    if success == True:
+                                        success = False
+                                Camera.Time = diff 
                                 if diff == 4:
                                     hedef_merkez_x = int((x+x+w)/2)
                                     hedef_merkez_y = int((y+y+h)/2)
+                                    print(hedef_merkez_x,hedef_merkez_y)
                                     bitiş_zamanı = Camera._GPS_Saati()
                                     kilitlenme_sayısı = kilitlenme_sayısı +1 
                                     success = True
+                                    Camera.Success = success
                                     kilitlenme = True
                                     start = 0
                                     print("Kilitlenme Sayısı:{}".format(kilitlenme_sayısı))
-                                if success == True : 
+                                if kilitlenme == True :
                                     #Send data to server
                                     pass
                                 
@@ -392,17 +418,13 @@ class Window():
     def _getoptions(self):
         selected_option = self.options.get()
         return selected_option
-    def _getcamera(self):
-        cap = cv2.VideoCapture(0)
-        ret , frame = cap.read()
-        cv2.imshow('frame',frame)
-        self.camera.after(10,self._getcamera)
+
     def __init__(self):
         self.window_initialized = False
-        
+        self.panel = None
         self.mainWindow = tkinter.Tk()
         self.mainWindow.title("HÜMA VECİHİ SİHA PANEL")
-        self.mainWindow.geometry('1240x750')
+        self.mainWindow.geometry('1600x750')
         self.mainWindow['padx'] = 8
 
         label= tkinter.Label(self.mainWindow, text="Vecihi HÜMA SİHA",font=("Arial",25))
@@ -421,7 +443,7 @@ class Window():
         self.mainWindow.rowconfigure(5, weight=3)
         self.mainWindow.rowconfigure(6, weight=3)
 
-        self.map_widget = tkintermapview.TkinterMapView(self.mainWindow,width=640,height=480,corner_radius=10)
+        self.map_widget = tkintermapview.TkinterMapView(self.mainWindow,width=480,height=420,corner_radius=10)
         self.map_widget.set_position(39.856398, 32.780181)
         self.map_widget.set_zoom(16)
         self.create_polygon()
@@ -439,8 +461,6 @@ class Window():
         self.operations.grid(row=2,column=4,sticky='sw')
         
         #####################
-        
-        
         self.time_label = tkinter.Label(self.mainWindow)
         self.time_label.config(text="Sunucu Saati:",font=("Arial",22))
         self.time_label.grid(row=0,column = 2)
@@ -452,10 +472,8 @@ class Window():
         timeFrame = tkinter.LabelFrame(self.mainWindow, text="Time")
         timeFrame.grid(row=3, column=0, sticky='new')
         ##Camera
-        self.camera = tkinter.LabelFrame(self.mainWindow)
-        self.camera.config(width=30,height=20)
-        self.camera.grid(row =1,column= 4 )
-        #self._getcamera()
+        self.panel = tkinter.Label(self.mainWindow)
+        self.panel.grid(row=1,column=4)
         # Buttons
         okButton = tkinter.Button(self.mainWindow, text="OK")
         okButton.config(width=15,height= 3,background='darkgreen',border=10)
@@ -476,6 +494,7 @@ class Window():
     def update(self,team_number):
         geodesic = Geod(ellps='WGS84')
         self.__get_data()
+        #self._camera()
         global our_telemetry
         global enemy_prev_list
         global coordinates_prev
@@ -627,7 +646,7 @@ class Window():
             print("There is a error")
             return False
 
-class Categorize():
+class Categorize(Camera):
     def __init__(self,team_number:int,starting_point:list):
         self.localization = Localization(starting_point =starting_point)
         self.camera = Camera()
@@ -841,37 +860,38 @@ class Categorize():
             if enemy[-1]["enemy_id"] == self.team_number:
                 base_angle = enemy[-1]["bearing_angle"]
             if enemy != []:
-                if enemy[-1]["alt_command"] == "Dive":
-                    alt_command = "Rise"
-                elif enemy[-1]["alt_command"] == "Rise":
-                    alt_command = "Dive"
-                if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority1") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
-                    speed = 75
-                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
-                        speed = 100
-                    escape_angle= 90 + enemy[-1]["Qrotate"]
-                    in_range_list[0]=[enemy[-1]["turn_direction_for_us"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
-                    in_range_count = in_range_count + 1
-                elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority2") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
-                    speed = 75 
-                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
-                        speed = 100
-                    escape_angle= 90 + enemy[-1]["Qrotate"]
-                    in_range_count = in_range_count + 1
-                    in_range_list[1]=[enemy[-1]["turn_direction_for_enemy"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
-                elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority3") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
-                    speed = 75
-                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
-                        speed = 100
-                    escape_angle= 90 + enemy[-1]["Qrotate"]
-                    in_range_count = in_range_count + 1
-                    in_range_list[2]=[enemy[-1]["turn_direction_for_enemy"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
-                else : 
-                    continue
+                if enemy[-1]["where_is_enemy"] == 'behind':
+                    if enemy[-1]["alt_command"] == "Dive":
+                        alt_command = "Rise"
+                    elif enemy[-1]["alt_command"] == "Rise":
+                        alt_command = "Dive"
+                    if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority1") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                        speed = 75
+                        if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                            speed = 100
+                        escape_angle= 90 + enemy[-1]["Qrotate"]
+                        in_range_list[0]=[enemy[-1]["turn_direction_for_us"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
+                        in_range_count = in_range_count + 1
+                    elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority2") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                        speed = 75 
+                        if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                            speed = 100
+                        escape_angle= 90 + enemy[-1]["Qrotate"]
+                        in_range_count = in_range_count + 1
+                        in_range_list[1]=[enemy[-1]["turn_direction_for_us"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
+                    elif characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("priority3") == True and characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("is_dangerous")== True:
+                        speed = 75
+                        if characteristics_list.get("enemy_id{}".format(enemy[-1]["enemy_id"])).get("avoid_immediate") == True:
+                            speed = 100
+                        escape_angle= 90 + enemy[-1]["Qrotate"]
+                        in_range_count = in_range_count + 1
+                        in_range_list[2]=[enemy[-1]["turn_direction_for_us"],escape_angle,alt_command,speed,enemy[-1]["enemy_id"]]
+                    else : 
+                        continue
         if in_range_count == 1:
             for i in in_range_list:
                 if i != 0:
-                    print("Turn {} with {} , {} and accelerate at %{} speed \n".format(i[0],i[1],i[3],i[4]))
+                    print("Turn {} with angle {} at %{} speed from enemy_id : {}  \n".format(i[0],i[1],i[3],i[4]))
         elif in_range_count == 2:
             print("Slow down to the %10 speed and turn right")
         elif in_range_count == 3:
@@ -907,13 +927,12 @@ class Categorize():
                 for prediction in prediction_list:
                     if prediction["enemy_id"] == enemy[-1]["enemy_id"]:
                         if collision_flag == True:
-                            point = self.collision_goto([enemy[-1]["Enlem"],enemy[-1]["Boylam"]],enemy[-1]["lat_change"],enemy[-1]["lon_change"],prediction)
+                            point = self.collision_avoid([enemy[-1]["Enlem"],enemy[-1]["Boylam"]],enemy[-1]["lat_change"],enemy[-1]["lon_change"],prediction)
                         else:
                             point = [prediction["pred_lat_1sec"],prediction["pred_lon_1sec"]]
                         point_list.append(point)
                 return point_list
-                #Yakındaki düşmanlardan birine tahmin edilmiş koordinat noktasına göre yaklaş eğer yol üstünde çarpışma varsa yol değiştir.
-    def collision_goto(self,location,lat_change,lon_change):
+    def collision_avoid(self,location,lat_change,lon_change):
         EARTH_RADIUS_IN_KM = 6378.137
         distance = 5
         distance_lat = distance * cos(72)
@@ -936,10 +955,28 @@ class Categorize():
         return [new_latitude,new_longitude]
     def create_decision(self,prediction_list):
         #Görüntü İşlemeden gelecek sonuçları buraya ilet
+        tracking_enemy_id = 0
+        tracking_enemy_distance = 150
+        tracking_enemy_track_angle = 0
         in_range_list = self.create_escape()
         route_list = self.create_route(prediction_list)
-
-
+        Camera_angle = Camera.Angle
+        In_camera_direction = Camera.Direction
+        lock_on_flag = Camera.Success
+        for enemy in self.corresponding_enemy_list:
+            if enemy[-1]["enemy_id"] != self.team_number:
+                if enemy[-1]["where_is_enemy"] ==  "front":
+                    if 15 < enemy[-1]["horizantal_distance"] < 150 and enemy[-1]["Qtrack"] < 40 :
+                        tracking_enemy_tmp_id=  enemy[-1]["enemy_id"]
+                        tracking_enemy_tmp_distance = enemy[-1]["horizantal_distance"]
+                        tracking_enemy_tmp_track_angle = enemy[-1]["Qtrack"]
+                        if tracking_enemy_distance > tracking_enemy_tmp_distance :
+                            tracking_enemy_id = tracking_enemy_tmp_id
+                            tracking_enemy_distance = tracking_enemy_tmp_distance
+                            tracking_enemy_track_angle = tracking_enemy_tmp_track_angle
+                        
+        #DÜZENLE OPTİMİZE ET UÇAKLAR İÇİN FRONT BEHİND İÇİN AYRICA BİR DE YANINA SEÇENEĞİ GETİR
+        print(Camera_angle,In_camera_direction,lock_on_flag)
         return True
     def goto(self,location):
         pass
@@ -1263,6 +1300,9 @@ class Localization():
             ourDirection = "Q3"
         if our_bearing_angle <360 and our_bearing_angle >270:
             ourDirection = "Q2"
+        
+        margin = 0.001
+        # YAN ALANLARI OLUŞTUR
         if ourDirection == "Q1" and uDirection == "Q1":
             if(self.us[0]  > self.enemy[0] and self.us[1]>self.enemy[1]):
                 where_is_enemy = "behind"
@@ -1271,7 +1311,7 @@ class Localization():
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q1" and uDirection == "Q4":
-            if(self.us[0]  < self.enemy[0] and self.us[1] > self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin and self.us[1] > self.enemy[1] - margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
@@ -1285,63 +1325,63 @@ class Localization():
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q2" and uDirection == "Q2":
-            if(self.us[0]  > self.enemy[0] and self.us[1] < self.enemy[1]):
+            if(self.us[0]  > self.enemy[0] and self.us[1] < self.enemy[1]+ margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q2" and uDirection == "Q1":
-            if(self.us[0]  > self.enemy[0] and self.us[1] > self.enemy[1]):
+            if(self.us[0]  > self.enemy[0] and self.us[1] > self.enemy[1] - margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q2" and uDirection == "Q3":
-            if(self.us[0]  < self.enemy[0] and self.us[1] < self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin + margin and self.us[1] < self.enemy[1]+  margin ):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q3" and uDirection == "Q3":
-            if(self.us[0]  < self.enemy[0] and self.us[1] < self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin and self.us[1] < self.enemy[1]+ margin ):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q3" and uDirection == "Q2":
-            if(self.us[0]  > self.enemy[0] and self.us[1] > self.enemy[1]):
+            if(self.us[0]  > self.enemy[0] - margin and self.us[1] > self.enemy[1] - margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q3" and uDirection == "Q4":
-            if(self.us[0]  < self.enemy[0] and self.us[1] < self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin and self.us[1] < self.enemy[1]+ margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q4" and uDirection == "Q4":
-            if(self.us[0]  < self.enemy[0] and self.us[1] > self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin and self.us[1] > self.enemy[1] - margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q4" and uDirection == "Q1":
-            if(self.us[0]  > self.enemy[0] and self.us[1] > self.enemy[1]):
+            if(self.us[0]  > self.enemy[0] - margin and self.us[1] > self.enemy[1] - margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
             else:
                 where_is_enemy = "front"
         if ourDirection == "Q4" and uDirection == "Q3":
-            if(self.us[0]  < self.enemy[0] and self.us[1] < self.enemy[1]):
+            if(self.us[0]  < self.enemy[0] + margin and self.us[1] < self.enemy[1]+ margin):
                 where_is_enemy = "behind"
             elif(self.us[0] == self.enemy[0] and self.us[1] == self.enemy[1]):
                 where_is_enemy = None
@@ -1369,6 +1409,13 @@ class Localization():
             elif 0<Qtrack and Qtrack< 180:
                 turn_direction_for_us = "Left"
             elif Qtrack<0:
+                turn_direction_for_us="Right"
+        if Qtrack > 180:
+                Qtrack = Qtrack - 180
+                turn_direction_for_us = "Right"
+        elif 0<Qtrack and Qtrack< 180:
+                turn_direction_for_us = "Left"
+        elif Qtrack<0:
                 turn_direction_for_us="Right"
         error_rate_x ,error_rate_y= 10 , 10
         #prev_coordinates_enemylat_lon = [self.enemy,self.us]

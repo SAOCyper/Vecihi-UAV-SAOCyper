@@ -2,3 +2,4 @@ Glados_yolov5_plane_detection_training/vecihi-siha
 yolov5/
 Glados_yolov5_plane_detection_training/src/SocketServer/__pycache__
 Glados_yolov5_plane_detection_training/Dataset_Manipulation/datasets
+Glados_yolov5_plane_detection_training/src/MAVProxy
