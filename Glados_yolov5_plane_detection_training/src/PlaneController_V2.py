@@ -488,6 +488,9 @@ class Camera():
         return gps_saat
     def __init__(self):   
         global telemetry_packager 
+        """ cv2.startWindowThread()
+        cv2.namedWindow("preview") """
+
         self.trained_face_data = cv2.CascadeClassifier(r'C:\CYCLOP\GLADOS\haarcascade_frontalface_default.xml')
         self.cap = cv2.VideoCapture(0)
         self.telemetry_packager = telemetry_packager
@@ -554,7 +557,6 @@ class Camera():
                 
                 global frame , start , kilitlenme_sayısı ,kilitlenme ,diff_info ,hedef_merkez_x,hedef_merkez_y,başlangıç_zamanı,bitiş_zamanı
                 ret, frame = self.cap.read()
-
                 rows,cols,_ =frame.shape
                 xmedium = int(cols/2)
                 y_medium = int(rows/2)
@@ -659,7 +661,7 @@ class Camera():
                 cv2.putText(frame,'FPS:' + str(averageFPS)[:4], (510,20), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 0, 0), 1, cv2.LINE_AA)
                 #self.recorder.write(frame)
                 del self.fpsArray[:-180]
-                cv2.imshow('frame',frame)
+                cv2.imshow('preview',frame)
                 if cv2.waitKey(20) & 0xFF == ord('q'):
                     for i in range(3):
                         print("....CLOSING CAMERA in {} second ....".format(3-i))
@@ -765,7 +767,7 @@ class Categorize():
 
 def uav_server():
         global data
-        host_uav ="127.0.0.1"
+        host_uav ="192.168.1.27"
         port_uav = 65433
         lsock_uav = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Avoid bind() exception: OSError: [Errno 48] Address already in use
@@ -797,12 +799,7 @@ def uav_server():
         conn.close()  # close the connection
 
 def pixhawk_runtime():
-    camera = Camera()
-    camerathread = threading.Thread(target=camera.detect)
-    #camerathread.setDaemon(True)
-    camerathread.start()
     while True:
-        
         if incoming_request == "Fight":
             
             if  plane.vehicle.battery.level < 20 and landed == False:
@@ -875,11 +872,14 @@ if __name__ == "__main__":
     drive = Categorize(team_number=team_number)
     drive_thread = threading.Thread(target=drive.create_decision)
     drive_thread.start()
-    
+    camera = Camera()
+    camerathread = threading.Thread(target=camera.detect)
+    #camerathread.setDaemon(True)
+    camerathread.start()
     thread1 = threading.Thread(target=uav_server)
     thread1.start()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--connect', default='tcp:127.0.0.1:5762')
+    parser.add_argument('--connect', default='tcp:192.168.1.27:5762')
     args = parser.parse_args()
     connection_string = args.connect
     #-- Create the object
