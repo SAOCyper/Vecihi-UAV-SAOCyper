@@ -5,8 +5,9 @@ from geopy import distance
 import datetime
 import plotly.express as px
 import numpy as np
-
-gpx_file = open('2017-08-05_Midnight Massacre singlespeed _Cycling.gpx', 'r')   # open the file in read mode
+from sklearn.preprocessing import PolynomialFeatures,StandardScaler
+from sklearn.linear_model import LinearRegression
+gpx_file = open(r'C:\Users\MERT ÜNÜBOL\Desktop\SİHA-Workspace\Glados_yolov5_plane_detection_training\other\2017-08-05_Midnight Massacre singlespeed _Cycling.gpx', 'r')   # open the file in read mode
 gpx_data = gpxpy.parse(gpx_file)
 
 len_tracks = len(gpx_data.tracks)
@@ -51,7 +52,35 @@ fig_3 = px.scatter_3d(df, x='lon', y='lat', z='elev', color='elev', template='pl
 fig_3.update_traces(marker=dict(size=2), selector=dict(mode='markers'))
 
 fig_3.show()
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+SEED = 42
+########################################
+time = np.linspace(1,207,206)
+time= np.reshape(time,(-1,1))
+lat = np.reshape(df['lat'].values,(-1,1))
+lon = np.reshape(df['lon'].values,(-1,1))
+x_train_time_lat, x_test_time_lat, y_train_lat, y_test_lat = train_test_split(time, lat, test_size=0.25, random_state=SEED)
+x_train_time_lon, x_test_time_lon, y_train_lon, y_test_lon = train_test_split(time, lon, test_size=0.25, random_state=SEED)
+poly_transform = PolynomialFeatures(degree=3, include_bias=False)
+x_poly_train_time_lat = poly_transform.fit_transform(x_train_time_lat)
+x_poly_test_time_lat = poly_transform.transform(x_test_time_lat)
+x_poly_train_time_lon = poly_transform.fit_transform(x_train_time_lon)
+x_poly_test_time_lon = poly_transform.transform(x_test_time_lon)
+regressor_lat = make_pipeline(StandardScaler(with_mean=False), LinearRegression())
+regressor_lat.fit(x_poly_train_time_lat, y_train_lat)
+regressor_lon = make_pipeline(StandardScaler(with_mean=False), LinearRegression())
+regressor_lon.fit(x_poly_train_time_lon, y_train_lon)
+y_pred_lat = regressor_lat.predict(poly_transform.fit_transform([[212]]))
+y_pred_lon = regressor_lon.predict(poly_transform.fit_transform([[212]]))
+lat = np.concatenate((lat,y_pred_lat))
+lon = np.concatenate((lon,y_pred_lon))
 
+fig_5 = px.scatter_3d(df, x='lonpred', y='latpred', z='elev_pred', color='elev', template='plotly_dark')
+
+fig_5.update_traces(marker=dict(size=2), selector=dict(mode='markers'))
+
+fig_5.show()
 fig_4 = px.line_mapbox(df, lat='lat', lon='lon', hover_name='time', mapbox_style="open-street-map", zoom=11)
 
 fig_4.update_layout(margin={"r":0,"t":0,"l":0,"b":0})

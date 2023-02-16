@@ -1,5 +1,6 @@
 from datetime import datetime
-
+lock_on_started = False
+lock_on_finished = False
 class TelemetryCreate():
             
     def __init__(self):
@@ -42,18 +43,19 @@ class TelemetryCreate():
             i=i+1
         self.telemetry_data = self.takım_numarasi | self.iha_bilgiler | self.gps_saat    
         print(self.telemetry_data)
-    def Iha_kilitlenme_bilgi(self,is_locked:str,process:bool):
-        if is_locked=="Y" and not process:
+    def Iha_kilitlenme_bilgi(self,process:bool):
+        global lock_on_started , lock_on_finished , locked_on
+        if locked_on== True and lock_on_started == True :
             self.Kilitlenme_başlangıç()
             process = True
             return process
-        elif is_locked=="N" and process:
+        elif locked_on == True and lock_on_finished == True:
             locked_on = {"otonom_kilitlenme": 1}
             self.Kilitlenme_bitiş()
             self.kilitlenme_bilgisi = self.lock_on_start | self.lock_on_finish | locked_on
             return self.kilitlenme_bilgisi
-        elif is_locked=="Y" and process:
-            process = True
+        elif locked_on == False or lock_on_started == False or lock_on_finished == False:
+            process = False
             return process
 #Creates complete dictionary of telemetry data
 bilgiler = [43.654352,22.31245421,105,6,252,2,245,19,1,1,421,240,143,57]
@@ -62,9 +64,8 @@ telemetry.Iha_telemetri_bilgi(1,bilgiler)
 process = False
 #Creates complete dictionary of lock_on_data
 while True : 
-    is_locked=input()
-    
-    result=telemetry.Iha_kilitlenme_bilgi(is_locked,process)
+
+    result=telemetry.Iha_kilitlenme_bilgi(process)
     if result == True or result == False :
         print(result)
         process = True

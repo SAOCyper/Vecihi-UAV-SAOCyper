@@ -25,7 +25,7 @@ def start_video_stream():
                 a = pickle.dumps(frame)
                 message = struct.pack("Q",len(a))+a
                 client_socket.sendall(message)
-                cv2.imshow('Tram-nsmitting to the Cache Server...',frame)
+                cv2.imshow('Transmitting to the Cache Server...',frame)
                 if cv2.waitKey(20) & 0xFF == ord('q'):
                     client_socket.close()
     except Exception as e:

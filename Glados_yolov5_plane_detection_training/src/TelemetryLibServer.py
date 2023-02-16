@@ -241,7 +241,7 @@ def get_data():
                                     }]
         b = [{
                                     "takim_numarasi": 1,
-                                    "IHA_enlem": 39.854831,
+                                    "IHA_enlem": 39.854833,
                                     "IHA_boylam":  32.782506,
                                     "IHA_irtifa": 104,
                                     "IHA_dikilme": 5,
@@ -807,8 +807,9 @@ def get_data():
             #data_string = pickle.dumps([telemetry_list[i],telemetry_list[i+1]])
             data_string = [telemetry_list[i],telemetry_list[i+1]]
             i = i + 1
-        else :
-            i = 0
+        elif i==6:
+            #data_string = [telemetry_list[i],telemetry_list[i]]
+            i=0
         return data_string
 
 class AppServerStorage:
@@ -832,9 +833,6 @@ class Message:
         self.jsonheader = None
         self.request = None
         self.response_created = False
-        self.googleGeocodeUrl = 'http://maps.googleapis.com/maps/api/geocode/json?'
-        self.geolocator = Nominatim(user_agent="eemertunubol@gmail.com")
-        self.location = self.geolocator.geocode("Anıttepe Mahallesi Gülseren Sokak 20/3 Turkey")
     def _set_selector_events_mask(self, mode):
         """Set selector to listen for events: mode is 'r', 'w', or 'rw'."""
         if mode == "r":
@@ -862,7 +860,7 @@ class Message:
 
     def _write(self):
         if self._send_buffer:
-            print(f"Sending {self._send_buffer!r} to {self.addr}")
+            #print(f"Sending {self._send_buffer!r} to {self.addr}")
             try:
                 # Should be ready to write
                 sent = self.sock.send(self._send_buffer)
@@ -899,35 +897,16 @@ class Message:
         message_hdr = struct.pack(">H", len(jsonheader_bytes))
         message = message_hdr + jsonheader_bytes + content_bytes
         return message
-    def get_coordinates(self,query, from_sensor=False):
-        query = query.encode('utf-8')
-        params = {
-            'address': query,
-            'sensor': "true" if from_sensor else "false"
-        }
-        url = self.googleGeocodeUrl + urllib.parse.urlencode(params)
-        json_response = urllib.request.urlopen(url)
-        response = simplejson.loads(json_response.read())
-        if response['results']:
-            location = response['results'][0]['geometry']['location']
-            latitude, longitude = location['lat'], location['lng']
-            print( query , latitude, longitude)
-        else:
-            latitude, longitude = None, None
-            print( query, "<no results>")
-        return latitude, longitude
 
     def _create_response_json_content(self):
         action = self.request.get("action")
-        location =self.get_coordinates("Anittepe Mahallesi Gulseren Sokak Funda Apartmani 20/3 Ankara ")
-        print(location)
         request_get = {
             "morpheus": "Follow the white rabbit. \U0001f430",
             "ring": "In the caves beneath the Misty Mountains. \U0001f48d",
             "/api/telemetri_gonder": get_data(),
             "\U0001f436": "\U0001f43e Playing ball! \U0001f3d0",
             "/sunucusaati":"Saat:{} ,Dakika:{} ,Saniye:{} ,MiliSaniye:{}".format(datetime.now().strftime('%H:'),datetime.now().strftime('%M:'),datetime.now().strftime('%S'),datetime.now().strftime('%f')),
-            "/qr_koordinati" : location,
+            
         }
         if action == "get":
             query = self.request.get("value")
@@ -1040,7 +1019,8 @@ class Message:
         if self.jsonheader["content-type"] == "text/json":
             encoding = self.jsonheader["content-encoding"]
             self.request = self._json_decode(data, encoding)
-            print(f"Received request {self.request!r} from {self.addr}")
+            #print(f"Received request {self.request!r} from {self.addr}")
+            print(f"Received request from {self.addr}")
         else:
             # Binary or unkdatetime.now()n content-type
             self.request = data
@@ -1060,3 +1040,4 @@ class Message:
         message = self._create_message(**response)
         self.response_created = True
         self._send_buffer += message
+
