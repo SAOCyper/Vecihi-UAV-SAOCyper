@@ -78,7 +78,10 @@ z = 0
 k = 0
 p = 0
 count = 0
-host = "192.168.1.27"
+host = "127.0.0.1"
+hostname=socket.gethostname()   
+IPAddr=socket.gethostbyname(hostname) 
+uav_host = IPAddr
 uav_port = 65433
 port = 65432
 
@@ -621,6 +624,7 @@ class Categorize():
             escape_cmd = True
             incoming_request = "Escape"
         else:
+            incoming_request = "Fight"
             escape_cmd = False 
             if kamikaze_cmd == True:
                 incoming_request = "Kamikaze"
@@ -1018,6 +1022,7 @@ class Window(Categorize):
         global uav_port
         global locking_count
         global mode
+        global uav_host
         global client_socket_uav
         self.recording = False
         self.record_stopped = False
@@ -1026,7 +1031,7 @@ class Window(Categorize):
         self.geodesic = Geod(ellps='WGS84')
 
         client_socket_uav = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # instantiate
-        client_socket_uav.connect((host, uav_port))  # connect to the server
+        client_socket_uav.connect((uav_host, uav_port))  # connect to the server
         self.categorization = Categorize(1)  
 
         self.window_initialized = False

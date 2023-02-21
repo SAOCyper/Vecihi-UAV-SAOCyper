@@ -2,7 +2,7 @@ import socket,struct,imutils,cv2,pickle,threading
 
 #Client Socket
 server_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-host_ip = "192.168.1.102"
+host_ip = "192.168.1.106"
 port = 10049
 socket_address = (host_ip,port)
 server_socket.bind(socket_address)
@@ -14,7 +14,7 @@ frame = None
 def start_video_stream():
     global frame
     client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    host_ip = '192.168.1.102'
+    host_ip = '192.168.1.106'
     port = 10050
     client_socket.connect((host_ip,port))
     data = b''

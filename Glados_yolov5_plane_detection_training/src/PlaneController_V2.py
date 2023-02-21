@@ -12,7 +12,11 @@ from dronekit import connect, VehicleMode, LocationGlobalRelative, Command, Batt
 from pymavlink import mavutil
 import time , socket , threading , pickle , math , psutil , argparse , copy
 import numpy as np 
+import warnings
+
 #Camera Global Paremeters
+camera_on_flag = False
+camera_on_flag_time2 = 0
 lock_on = False
 lock_on_started = False
 lock_on_finished = False
@@ -29,6 +33,7 @@ hedef_merkez_x = 0
 hedef_merkez_y = 0
 başlangıç_zamanı = 0
 bitiş_zamanı = 0
+warnings.simplefilter('ignore', np.RankWarning)
 ####Command Variables########
 incoming_roll = 1500
 incoming_yaw = 1500
@@ -474,6 +479,7 @@ class Plane():
         self.vehicle.channels.overrides = {}
 
 
+
 class Camera():
     Angle = 0
     Direction = 0
@@ -493,7 +499,7 @@ class Camera():
 
         self.trained_face_data = cv2.CascadeClassifier(r'C:\CYCLOP\GLADOS\haarcascade_frontalface_default.xml')
         self.cap = cv2.VideoCapture(0)
-        self.telemetry_packager = telemetry_packager
+        #self.telemetry_packager = TelemetryCreate()
         #self.recorder = cv2.VideoWriter('output.mp4',cv2.VideoWriter_fourcc('m','p','4','v'), 30.0,(640,480))
         self.KNOWN_DISTANCE = 52  # centimeter 
         self.KNOWN_WIDTH = 14.3  # centimeter     
@@ -548,13 +554,24 @@ class Camera():
         return angD , direction
     
     def detect(self):
-        global lock_on , lock_on_started , lock_on_finished
+        global lock_on , lock_on_started , lock_on_finished , camera_on_flag , camera_on_flag_time2
         lock_on_time = 0
         lock_on_waiting_time = 0
+        points_x = []
+        point_count = 0
+        frame_count = 0
+        points_y = []
+        current_bbox_frame = []
+        prev_bbox_frame = []
+        tracking_objects = {}
+        track_id = 0
+        x_list = [item for item in range(0,1300)]
+        camera_on_flag_time = 0
         while True:
                 # Capture frame-by-frame
                 t0 = time.time()
-                
+                if len(current_bbox_frame) > 1000:
+                    current_bbox_frame.clear()
                 global frame , start , kilitlenme_sayısı ,kilitlenme ,diff_info ,hedef_merkez_x,hedef_merkez_y,başlangıç_zamanı,bitiş_zamanı
                 ret, frame = self.cap.read()
                 rows,cols,_ =frame.shape
@@ -578,9 +595,7 @@ class Camera():
                 cv2.rectangle(frame,(hitbox_left,hitbox_up),(hitbox_right,hitbox_down),color=(255, 17, 255),thickness=3)
                 cv2.putText(frame,text="Hit Zone",org=(hitbox_left,hitbox_down+35),fontFace=cv2.FONT_HERSHEY_SIMPLEX,fontScale=1,color=(255, 17, 255))
                 if len(faces)>0:
-                    if lock_on_time == 0:
-                        lock_on_time = datetime.now()
-                    lock_on = True
+                    frame_count += 1
                     for (x, y, w, h) in faces:
                         #print(x,y,w,h)
                         success = False
@@ -589,38 +604,99 @@ class Camera():
                         end_cord_x = x + w
                         end_cord_y = y + h
                         self.distance = self.distance_finder(self.focal_length_measured,self.KNOWN_WIDTH,w)
+                        dikey = ((end_cord_y - y)/rows)*100
+                        yatay = ((end_cord_x - x)/cols)*100
+                        cv2.rectangle(frame, (x, y), (end_cord_x, end_cord_y), color=(0, 0, 255), thickness=2)###Hedef Karesi
+                        cv2.putText(frame,text="Dikey = %{:.2f}".format(dikey),org=(end_cord_x+10, y+15),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(22,159,230),thickness=2,lineType=cv2.LINE_AA)
+                        cv2.putText(frame,text="Yatay = %{:.2f}".format(yatay),org=(end_cord_x-70, y-15),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(22,159,2230),thickness=2,lineType=cv2.LINE_AA)
                         #print("Distance is {} cm".format(self.distance))
                         framemid_x = int((end_cord_x + x)/2)
                         framemid_y = int((end_cord_y + y)/2)
-                        dikey = ((end_cord_y - y)/rows)*100
-                        yatay = ((end_cord_x - x)/cols)*100
+                        direction = "Middle"
+                        movement_direction_x = 0
+                        if len(current_bbox_frame) > 1:
+                            movement_direction_x = current_bbox_frame[-1][0] - prev_bbox_frame[-1][0]
+                        if movement_direction_x > 0:
+                            direction="Right"
+                        else:
+                            direction="Left"
+                        current_bbox_frame.append((framemid_x,framemid_y))
+                        if frame_count <= 2:
+                            for pt in current_bbox_frame:
+                                for pt2 in prev_bbox_frame:
+                                    distance = math.hypot(pt2[0]-pt[0],pt2[1]-pt[1])
+                                    if distance < 20:
+                                        tracking_objects[track_id] = pt
+                                        track_id += 1
+                        else:
+                            tracking_objects_copy = tracking_objects.copy()
+                            for object_id,pt2 in tracking_objects_copy.items():
+                                object_exists = False
+                                for pt in current_bbox_frame:
+                                    distance = math.hypot(pt2[0]-pt[0],pt2[1]-pt[1])
+                                    if distance < 20:
+                                        tracking_objects[object_id] = pt
+                                        object_exists = True
+                                if not object_exists:
+                                    tracking_objects.pop(object_id)
+                        """ for object_id , pt in tracking_objects.items():
+                            cv2.putText(frame , str(object_id),(pt[0],pt[1]-7),0,1,(0,0,255),1) """
+                        if point_count < 20:
+                            point_count += 1
+                            points_x.append(framemid_x)
+                            points_y.append(framemid_y)
+                        elif point_count >= 20:
+                            point_count = 0
+                            points_x.clear()
+                            points_y.clear()
+                        if points_x :
+                            poly = np.polyfit(points_x , points_y , 2)
+                            for i , (posX,posY) in enumerate(zip(points_x,points_y)):
+                                pos = (posX,posY)
+                                if i == 0:
+                                    cv2.line(frame,pos,pos,(0,255,0),2)
+                                else:
+                                    cv2.line(frame,pos,(points_x[i-1],points_y[i-1]),(0,255,0),2)
+                            if direction == "Right":
+                                x_list = [item for item in range(current_bbox_frame[-1][0],640)]  
+                                mid_desired_x = int((640 + current_bbox_frame[-1][0])/2)
+                            elif direction == "Left":
+                                x_list = [item for item in range(0,current_bbox_frame[-1][0])] 
+                                mid_desired_x = int(current_bbox_frame[-1][0]/2)
+                            for x in x_list:
+                                y_prediction=int(np.polyval(poly,x))
+                                y_p = np.poly1d(poly)
+                                predicted_y = int(y_p(mid_desired_x))
+                                #print(y_p(mid_desired_x))
+                                cv2.circle(frame,(x,y_prediction),2,(255,0,255),cv2.FILLED)
+                                cv2.circle(frame,(mid_desired_x,predicted_y),7,(0,0,255),cv2.FILLED)
                         point_list = [(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),(hitbox_midpointx-1,0)]
                         self.angle ,self.direction= self.get_angle(point_list)
                         Camera.Angle = self.angle
                         Camera.Direction = self.direction
                         #print(self.direction,self.angle)
-
-                        cv2.line(frame,(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),color = (255,255,255),thickness=2)
-                        cv2.rectangle(frame, (x, y), (end_cord_x, end_cord_y), color=(0, 0, 255), thickness=2)
-                        cv2.putText(frame,text="Dikey = %{:.2f}".format(dikey),org=(end_cord_x+10, y+15),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(22,159,230),thickness=2,lineType=cv2.LINE_AA)
-                        cv2.putText(frame,text="Yatay = %{:.2f}".format(yatay),org=(end_cord_x-70, y-15),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(22,159,2230),thickness=2,lineType=cv2.LINE_AA)
+                        cv2.line(frame,(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),color = (255,255,255),thickness=2)          
                         if (x > hitbox_left and end_cord_x < hitbox_right) and (y > hitbox_up and end_cord_y < hitbox_down):
                             if ( yatay > 5) and ( dikey > 5):
-                                kilitlenme_bilgisi = self.telemetry_packager.Iha_kilitlenme_bilgi()
+                                #kilitlenme_bilgisi = self.telemetry_packager.Iha_kilitlenme_bilgi()
                                 if start == 0:
-                                    lock_on_started = True
+                                    lock_on_started = telemetry_packager.Kilitlenme_başlangıç()
+                                    #lock_on_started = True
                                     start = datetime.now()
+                                    camera_on_flag_time = datetime.now()
                                     başlangıç_zamanı = Camera._GPS_Saati()
                                 diff = (datetime.now() - start).seconds
-                                if diff == 1 :
-                                    Camera.Success = False
+                                if success == True:
+                                        success = False
+                                        Camera.Success = False
+                                if diff == 1:
+                                    camera_on_flag = True
                                 if diff == 2:
                                     kilitlenme =False
-                                    if success == True:
-                                        success = False
+                                    
                                 Camera.Time = diff 
                                 if diff == 4:
-                                    lock_on_finished = True
+                                    lock_on_finished = telemetry_packager.Kilitlenme_bitiş()
                                     hedef_merkez_x = int((x+x+w)/2)
                                     hedef_merkez_y = int((y+y+h)/2)
                                     #print(hedef_merkez_x,hedef_merkez_y)
@@ -631,12 +707,15 @@ class Camera():
                                     kilitlenme = True
                                     start = 0
                                     #print("Kilitlenme Sayısı:{}".format(kilitlenme_sayısı))
-                                if kilitlenme_bilgisi == type(dict) :
-                                    print(kilitlenme_bilgisi)
-                                    ###Send data
-                                    pass
+   
 
                                 cv2.putText(frame,text="{} saniye".format(diff),org=(20,30),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(0,255,0),thickness=1,lineType=cv2.LINE_AA)
+                                prev_bbox_frame = current_bbox_frame.copy()
+                                if success == True:
+                                    ######Send Data#####
+                                    lock_on = {"otonom_kilitlenme": 1}
+                                    self.kilitlenme_bilgisi = lock_on_started | lock_on_finished | lock_on
+                                    print(self.kilitlenme_bilgisi)
                                 if kilitlenme == True:
                                     cv2.putText(frame,text="Locking Success!",org=(20,50),fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5,color=(0,255,0),thickness=1,lineType=cv2.LINE_AA)
                                 
@@ -647,13 +726,12 @@ class Camera():
                             start = 0
                             kilitlenme = False
                 else : 
-                    if lock_on_time != 0:
-                        lock_on_waiting_time = (datetime.now() - lock_on_time).seconds
-                    if lock_on_waiting_time > 10:
-                        lock_on_time = 0
-                        lock_on = False
                     start = 0
                     kilitlenme = False
+                    if camera_on_flag_time != 0:
+                        camera_on_flag_time2 = datetime.now() - camera_on_flag_time 
+                if camera_on_flag_time2 == 6 : 
+                    camera_on_flag = False
                 # Display the resulting frame
                 t = time.time()-t0
                 self.fpsArray.append(1/t)
@@ -662,7 +740,7 @@ class Camera():
                 #self.recorder.write(frame)
                 del self.fpsArray[:-180]
                 cv2.imshow('preview',frame)
-                if cv2.waitKey(20) & 0xFF == ord('q'):
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     for i in range(3):
                         print("....CLOSING CAMERA in {} second ....".format(3-i))
                         time.sleep(1)
@@ -747,12 +825,11 @@ class Categorize():
         while True:
             if data != 0:
                 incoming_request = data["incoming_request"]
-            """ if incoming_request != "Proceed" or incoming_request != 0: 
                 incoming_altitude = data["incoming_altitude"]
                 incoming_latitude = data["incoming_latitude"]
                 incoming_longitude = data["incoming_longitude"]
                 incoming_enemy_id = data["incoming_enemy_id"]
-                incoming_distance = data["incoming_distance"] """
+                incoming_distance = data["incoming_distance"] 
 
             #print(incoming_request,incoming_distance)
             Camera_angle = Camera.Angle
@@ -767,7 +844,10 @@ class Categorize():
 
 def uav_server():
         global data
-        host_uav ="192.168.1.27"
+        hostname=socket.gethostname()   
+        IPAddr=socket.gethostbyname(hostname) 
+        host_uav = IPAddr  
+        #host_uav ="192.168.1.27"
         port_uav = 65433
         lsock_uav = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Avoid bind() exception: OSError: [Errno 48] Address already in use
@@ -799,9 +879,14 @@ def uav_server():
         conn.close()  # close the connection
 
 def pixhawk_runtime():
+    global mode , camera_on_flag , cruise_angle_deg , a , incoming_attitude_list , incoming_direction
+    count4 = 0
     while True:
         if incoming_request == "Fight":
-            
+            count4 = count4 + 1
+            if count4 > 10:
+                print(camera_on_flag)
+                count4 = 0
             if  plane.vehicle.battery.level < 20 and landed == False:
                 plane.set_ap_mode("AUTO")
                 if plane.get_ap_mode() == "AUTO" and land_count <1:
@@ -861,7 +946,48 @@ def pixhawk_runtime():
                     plane.disarm()
                     
         elif incoming_request == "GPS":
-            pass        
+            pass  
+        elif incoming_request == "Escape":
+            pass
+        elif incoming_request == "Kamikaze":
+            pass
+        elif incoming_request == "RTL":
+            pass
+        elif incoming_request == "Land":
+            plane.set_ap_mode("AUTO")
+            if plane.get_ap_mode() == "AUTO" and land_count <1:
+                print("Plane is started to descend")
+                if plane.pos_alt_rel > 100:
+                    plane.set_rc_channel(2 , 1200)
+                    time.sleep(1.5)
+                    print(plane.vehicle._pitch)
+                    plane.set_rc_channel(2,)
+                    print(plane.vehicle._pitch)
+                land_count = land_count + 1
+                plane.set_ap_mode("RTL")
+                plane.set_ap_mode("AUTO")
+                plane.clear_mission()
+                land_mission = Command(0,0,0,3, mavutil.mavlink.MAV_CMD_NAV_LAND,0,0,0,0,0,0,plane.location_home.lat,plane.location_home.lon,plane.location_home.alt)
+                plane.mission.add(land_mission)
+                plane.vehicle.flush()
+                while True:
+                    if plane.location_current.alt < 1:
+                        landed = True
+                        plane.set_ap_mode("Manual")
+                        plane.disarm()
+                        break
+
+        elif incoming_request == "Takeoff":
+            plane.arm_and_takeoff()#Default to 50 meter altitude
+        elif incoming_request == "Guided":
+            plane.set_ap_mode("GUIDED")         
+        elif incoming_request == "Loiter":
+            plane.set_ap_mode("LOITER")      
+        elif incoming_request == "Manual":
+            plane.clear_all_rc_override()
+            plane.clear_mission()
+            while incoming_request == "Manual":
+                pass
         """ while True:
             target_location=LocationGlobalRelative(lat=target_lat,lon=target_lon,alt=target_alt)
             plane.goto() """
@@ -879,7 +1005,7 @@ if __name__ == "__main__":
     thread1 = threading.Thread(target=uav_server)
     thread1.start()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--connect', default='tcp:192.168.1.27:5762')
+    parser.add_argument('--connect', default='tcp:127.0.0.1:5762')
     args = parser.parse_args()
     connection_string = args.connect
     #-- Create the object

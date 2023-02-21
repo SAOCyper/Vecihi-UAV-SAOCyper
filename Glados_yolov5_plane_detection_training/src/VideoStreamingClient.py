@@ -1,7 +1,7 @@
 import socket,struct,imutils,cv2,pickle
 
 client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-host_ip = "192.168.1.102"
+host_ip = "192.168.1.106"
 port = 10049
 socket_address = (host_ip,port)
 client_socket.connect(socket_address)
