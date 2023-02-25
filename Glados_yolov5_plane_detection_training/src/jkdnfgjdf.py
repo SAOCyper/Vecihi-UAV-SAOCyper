@@ -212,7 +212,7 @@ class Camera():
                                 y_prediction=int(np.polyval(poly,x))
                                 y_p = np.poly1d(poly)
                                 predicted_y = int(y_p(mid_desired_x))
-                                print(y_p(mid_desired_x))
+                                #print(y_p(mid_desired_x))
                                 cv2.circle(frame,(x,y_prediction),2,(255,0,255),cv2.FILLED)
                                 cv2.circle(frame,(mid_desired_x,predicted_y),7,(0,0,255),cv2.FILLED)
                         point_list = [(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),(hitbox_midpointx-1,0)]
@@ -282,7 +282,7 @@ class Camera():
                 if key & 0xFF == ord('q'):
                     for i in range(3):
                         print("....CLOSING CAMERA in {} second ....".format(3-i))
-                        
+
                         time.sleep(1)
                     break
         # When everything done, release the capture

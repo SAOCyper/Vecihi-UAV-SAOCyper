@@ -13,13 +13,16 @@ from pymavlink import mavutil
 import time , socket , threading , pickle , math , psutil , argparse , copy
 import numpy as np 
 import warnings
-
+import quaternion
 #Camera Global Paremeters
+pitch_cam_angle = 0
+roll_cam_angle = 0
 camera_on_flag = False
 camera_on_flag_time2 = 0
 lock_on = False
 lock_on_started = False
 lock_on_finished = False
+target_window_location = None
 frame = 0
 cap = 0
 temp_m1 = 0.1
@@ -33,6 +36,7 @@ hedef_merkez_x = 0
 hedef_merkez_y = 0
 başlangıç_zamanı = 0
 bitiş_zamanı = 0
+starting_point_flag = False
 warnings.simplefilter('ignore', np.RankWarning)
 ####Command Variables########
 incoming_roll = 1500
@@ -74,6 +78,7 @@ Aileron_port = 1
 Elevator_port = 2
 Throttle_port = 3
 Rudder_port =  4
+
 
 #Localizasyon Parameters
 data = {"incoming_request":0,"incoming_altitude":0,"incoming_distance":0,"incoming_enemy_id":0,"incoming_longitude":0,"incoming_latitude":0}
@@ -118,7 +123,7 @@ class Plane():
             return
             
         self._setup_listeners()
-
+        self._load_parameters()
         self.airspeed           = 0.0       #- [m/s]    airspeed
         self.groundspeed        = 0.0       #- [m/s]    ground speed
         
@@ -166,6 +171,7 @@ class Plane():
                 self.att_pitch_deg  = math.degrees(message.pitch)
                 self.att_heading_deg = math.degrees(message.yaw)%360
                 
+                
             @self.vehicle.on_message('GLOBAL_POSITION_INT')       
             def listener(vehicle, name, message):          #--- Position / Velocity                                                                                                             
                 self.pos_lat        = message.lat*1e-7
@@ -191,7 +197,8 @@ class Plane():
             
         return (self.vehicle)
         print(">> Connection Established")
-
+    def _load_parameters(self):
+        self.vehicle.parameters["RNGFND_LANDING"] = 1
     def _get_location_metres(self, original_location, dNorth, dEast, is_global=False):
         """
         Returns a Location object containing the latitude/longitude `dNorth` and `dEast` metres from the
@@ -231,6 +238,7 @@ class Plane():
     def disarm(self):                           #-- disarm UAV
         """ Disarm the UAV
         """
+        self.vehicle.disarm(True)
         self.vehicle.armed = False
 
     def set_airspeed(self, speed):              #--- Set target airspeed
@@ -292,7 +300,10 @@ class Plane():
             takeoff_pitch       - [deg] pitch angle during takeoff
             heading             - [deg] heading angle during takeoff (default is the current)
         """
+        
         if heading is None: heading = self.att_heading_deg
+ 
+        
         
         self.download_mission()
         #-- save the mission: copy in the memory
@@ -328,6 +339,7 @@ class Plane():
             altitude    - altitude at which the takeoff is concluded
             pitch_deg   - pitch angle during takeoff
         """
+        global starting_point_flag
         self.mission_add_takeoff(takeoff_altitude=1.5*altitude, takeoff_pitch=pitch_deg)
         print ("Takeoff mission ready")
         
@@ -341,7 +353,16 @@ class Plane():
             time.sleep(0.5)
             print ("Waiting for good GPS...")
         self.location_home      = LocationGlobalRelative(self.pos_lat,self.pos_lon,altitude)
-        
+        while starting_point_flag == False:
+            self.home_landing_heading_angle = 0
+            if self.att_heading_deg != 0:
+                self.home_landing_heading_angle = self.att_heading_deg
+                print("Aperture angle is {}".format(self.home_landing_heading_angle))
+            if self.home_landing_heading_angle != 0:
+                starting_point_flag = True 
+        self.landing_starting_point = self.create_landing_starting_point()
+        self.landing_starting_point = LocationGlobalRelative(self.landing_starting_point.lat,self.landing_starting_point.lon,self.landing_starting_point.alt)
+        print(self.landing_starting_point)
         print("Home is saved as "), self.location_home
         print ("Vehicle is Armable: try to arm")
         self.set_ap_mode("MANUAL")
@@ -364,7 +385,6 @@ class Plane():
             while self.pos_alt_rel <= altitude - 20.0:
                 print ("Altitude = %.0f"%self.pos_alt_rel)
                 time.sleep(2.0)
-                
             print("Altitude reached: set to GUIDED")
             self.set_ap_mode("GUIDED")
             
@@ -374,7 +394,31 @@ class Plane():
             self.vehicle.simple_goto(self.location_home)
             
         return True
-        
+    def distance_to_current_waypoint(self):
+        """
+        Gets distance in metres to the current waypoint. 
+        It returns None for the first waypoint (Home location).
+        """
+        nextwaypoint = self.vehicle.commands.next
+        if nextwaypoint==0:
+            return None
+        missionitem=self.vehicle.commands[nextwaypoint-1] #commands are zero indexed
+        lat = missionitem.x
+        lon = missionitem.y
+        alt = missionitem.z
+        targetWaypointLocation = LocationGlobalRelative(lat,lon,alt)
+        distancetopoint = self.get_distance_metres2(self.vehicle.location.global_frame, targetWaypointLocation)
+        return distancetopoint   
+    def get_distance_metres2(self,aLocation1, aLocation2):
+        """
+        Returns the ground distance in metres between two LocationGlobal objects.
+        This method is an approximation, and will not be accurate over large distances and close to the 
+        earth's poles. It comes from the ArduPilot test code: 
+        https://github.com/diydrones/ardupilot/blob/master/Tools/autotest/common.py
+        """
+        dlat = aLocation2.lat - aLocation1.lat
+        dlong = aLocation2.lon - aLocation1.lon
+        return math.sqrt((dlat*dlat) + (dlong*dlong)) * 1.113195e5
     def get_target_from_bearing(self, original_location, ang, dist, altitude=None):
         """ Create a TGT request packet located at a bearing and distance from the original point
         
@@ -413,7 +457,13 @@ class Plane():
                                              dist=5000,
                                              altitude=altitude)
         return(tgt)
+    def create_landing_starting_point(self):
         
+        land_start_point = self.get_target_from_bearing(original_location=self.location_home, 
+                                             ang=math.radians(self.home_landing_heading_angle), 
+                                             dist=600,
+                                             altitude=60)
+        return (land_start_point)   
     def goto(self, location):
         """ Go to a location
         
@@ -478,6 +528,56 @@ class Plane():
     def clear_all_rc_override(self):               #--- clears all the rc channel override
         self.vehicle.channels.overrides = {}
 
+    def get_distance_metres(self):
+        """
+        Returns the ground distance in metres between two LocationGlobal objects.
+        This method is an approximation, and will not be accurate over large distances and close to the 
+        earth's poles. It comes from the ArduPilot test code: 
+        https://github.com/diydrones/ardupilot/blob/master/Tools/autotest/common.py
+        """
+        dlat = self.location_current.lat - self.landing_starting_point.lat
+        dlong = self.location_current.lon - self.landing_starting_point.lon
+        return math.sqrt((dlat*dlat) + (dlong*dlong)) * 1.113195e5
+
+    def send_to_landing_point(self):
+        horizontal_difference = self.get_distance_metres()
+        #self.goto(self.landing_starting_point)
+        second = int(horizontal_difference / plane.vehicle.airspeed)
+        plane.set_airspeed(15)
+        plane.set_ap_mode("AUTO")
+        cmd=Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, self.landing_starting_point.lat, self.landing_starting_point.lon, 60)
+        plane.mission.add(cmd)
+        plane.vehicle.flush()
+        time.sleep(1)
+        if plane.get_ap_mode() == "RTL":
+            plane.set_ap_mode("AUTO")
+        distance_to_wp = self.distance_to_current_waypoint()
+        while distance_to_wp == None :
+            distance_to_wp = self.distance_to_current_waypoint()
+        while distance_to_wp > 10 :
+            if plane.get_ap_mode() == "RTL":
+                plane.set_ap_mode("AUTO")
+            distance_to_wp = self.distance_to_current_waypoint()
+            if horizontal_difference < 10:
+                break
+            print(distance_to_wp)
+            print("Arriving at landing point")
+            time.sleep(0.1)
+        print("Arrived at landing point.Attempting to land ...")
+    def send_set_attitude_target(self,roll=0, pitch=0, yaw=0, thrust=0.5):
+        attitude = [np.radians(roll), np.radians(pitch), np.radians(yaw)]
+        a = quaternion.from_euler_angles(attitude)
+        attitude_quaternion = quaternion.as_float_array(a)
+        print(attitude_quaternion)
+        msg = plane.vehicle.message_factory.set_attitude_target_encode(
+            0, 0, 0,  # time_boot_ms, target_system, target_component
+            0b10111000,  # type_mask https://mavlink.io/en/messages/common.html#ATTITUDE_TARGET_TYPEMASK
+            attitude_quaternion,  # Attitude quaternion
+            0, 0, 0,  # Rotation rates (ignored)
+            thrust  # Between 0.0 and 1.0
+        )
+
+        self.vehicle.send_mavlink(msg)
 
 
 class Camera():
@@ -554,7 +654,8 @@ class Camera():
         return angD , direction
     
     def detect(self):
-        global lock_on , lock_on_started , lock_on_finished , camera_on_flag , camera_on_flag_time2
+        global lock_on , lock_on_started , lock_on_finished , camera_on_flag , camera_on_flag_time2 , target_window_location
+        global pitch_cam_angle , roll_cam_angle
         lock_on_time = 0
         lock_on_waiting_time = 0
         points_x = []
@@ -574,13 +675,17 @@ class Camera():
                     current_bbox_frame.clear()
                 global frame , start , kilitlenme_sayısı ,kilitlenme ,diff_info ,hedef_merkez_x,hedef_merkez_y,başlangıç_zamanı,bitiş_zamanı
                 ret, frame = self.cap.read()
-                rows,cols,_ =frame.shape
+                rows,cols,_ = (480,640,3)
                 xmedium = int(cols/2)
                 y_medium = int(rows/2)
                 hitbox_right = int(cols - (cols/4))
                 hitbox_left = int(cols/4)
                 hitbox_up = int(rows/10)
                 hitbox_down = int(rows - (rows/10))
+                hitbox_sideway_1_bound_y = int(y_medium - 160)
+                hitbox_sideway_2_bound_y = int(y_medium  + 160)
+                hitbox_upper_bound_x_1 = int(xmedium - 160)
+                hitbox_upper_bound_x_2 = int(xmedium + 160)
                 hitbox_midpointx = int((hitbox_right + hitbox_left)/2)
                 hitbox_midpointy = int((hitbox_up + hitbox_down) / 2)
                 horizontalboundary1 =int((xmedium/25)*20)
@@ -595,9 +700,11 @@ class Camera():
                 cv2.rectangle(frame,(hitbox_left,hitbox_up),(hitbox_right,hitbox_down),color=(255, 17, 255),thickness=3)
                 cv2.putText(frame,text="Hit Zone",org=(hitbox_left,hitbox_down+35),fontFace=cv2.FONT_HERSHEY_SIMPLEX,fontScale=1,color=(255, 17, 255))
                 if len(faces)>0:
+                    camera_on_flag = True
                     frame_count += 1
                     for (x, y, w, h) in faces:
                         #print(x,y,w,h)
+                        
                         success = False
                         roi_gray = gray[y:y+h, x:x+w] #(ycord_start, ycord_end)
                         roi_color = frame[y:y+h, x:x+w]
@@ -614,14 +721,32 @@ class Camera():
                         framemid_y = int((end_cord_y + y)/2)
                         direction = "Middle"
                         movement_direction_x = 0
-                        if len(current_bbox_frame) > 1:
+                        pixel_angle_rate_x = 40 / (cols/2)
+                        pixel_angle_rate_y = 12 / (rows/2)
+                        if framemid_x > (hitbox_midpointx + 20) :
+                            x_pixel = int(cols - framemid_x)
+                            roll_cam_angle = x_pixel * pixel_angle_rate_x
+                        elif framemid_x < (hitbox_midpointx - 20):
+                            x_pixel = int(framemid_x)
+                            roll_cam_angle = (x_pixel * pixel_angle_rate_x) *  -1
+                        elif framemid_x > (hitbox_midpointx - 20) and framemid_x < (hitbox_midpointx + 20):
+                            roll_cam_angle = 0
+                        if framemid_y < (hitbox_midpointy -20):
+                            y_pixel = int(framemid_y)
+                            pitch_cam_angle = y_pixel * pixel_angle_rate_y
+                        elif framemid_y > (hitbox_midpointy + 20):
+                            y_pixel = int(rows - framemid_y)
+                            pitch_cam_angle = (y_pixel * pixel_angle_rate_y) * -1
+                        elif framemid_y > (hitbox_midpointy -20) and framemid_y < (hitbox_midpointy + 20):
+                            pitch_cam_angle = 0
+                        """ if len(current_bbox_frame) > 1:
                             movement_direction_x = current_bbox_frame[-1][0] - prev_bbox_frame[-1][0]
                         if movement_direction_x > 0:
                             direction="Right"
                         else:
-                            direction="Left"
-                        current_bbox_frame.append((framemid_x,framemid_y))
-                        if frame_count <= 2:
+                            direction="Left" """
+                        """ current_bbox_frame.append((framemid_x,framemid_y)) """
+                        """ if frame_count <= 2:
                             for pt in current_bbox_frame:
                                 for pt2 in prev_bbox_frame:
                                     distance = math.hypot(pt2[0]-pt[0],pt2[1]-pt[1])
@@ -638,10 +763,10 @@ class Camera():
                                         tracking_objects[object_id] = pt
                                         object_exists = True
                                 if not object_exists:
-                                    tracking_objects.pop(object_id)
+                                    tracking_objects.pop(object_id) """
                         """ for object_id , pt in tracking_objects.items():
                             cv2.putText(frame , str(object_id),(pt[0],pt[1]-7),0,1,(0,0,255),1) """
-                        if point_count < 20:
+                        """ if point_count < 20:
                             point_count += 1
                             points_x.append(framemid_x)
                             points_y.append(framemid_y)
@@ -669,7 +794,7 @@ class Camera():
                                 predicted_y = int(y_p(mid_desired_x))
                                 #print(y_p(mid_desired_x))
                                 cv2.circle(frame,(x,y_prediction),2,(255,0,255),cv2.FILLED)
-                                cv2.circle(frame,(mid_desired_x,predicted_y),7,(0,0,255),cv2.FILLED)
+                                cv2.circle(frame,(mid_desired_x,predicted_y),7,(0,0,255),cv2.FILLED) """
                         point_list = [(hitbox_midpointx,hitbox_midpointy),(framemid_x,framemid_y),(hitbox_midpointx-1,0)]
                         self.angle ,self.direction= self.get_angle(point_list)
                         Camera.Angle = self.angle
@@ -689,8 +814,6 @@ class Camera():
                                 if success == True:
                                         success = False
                                         Camera.Success = False
-                                if diff == 1:
-                                    camera_on_flag = True
                                 if diff == 2:
                                     kilitlenme =False
                                     
@@ -725,11 +848,38 @@ class Camera():
                         else:
                             start = 0
                             kilitlenme = False
+                            
+                            if x < hitbox_left  and y < hitbox_sideway_1_bound_y:
+                                target_window_location = "LeftUp"
+                            elif x < hitbox_left and y > hitbox_sideway_2_bound_y:
+                                target_window_location = "LeftDown"
+                            elif x < hitbox_left and (hitbox_sideway_1_bound_y < y <hitbox_sideway_2_bound_y):
+                                target_window_location = "Left"
+                            elif x > hitbox_right  and y < hitbox_sideway_1_bound_y:
+                                target_window_location = "RightUp"
+                            elif x > hitbox_right and y > hitbox_sideway_2_bound_y:
+                                target_window_location = "RightDown"
+                            elif x > hitbox_right and (hitbox_sideway_1_bound_y < y <hitbox_sideway_2_bound_y):
+                                target_window_location = "Right"
+                            elif hitbox_upper_bound_x_2 > x > hitbox_upper_bound_x_1 and y < hitbox_up :
+                                target_window_location = "Up"
+                            elif x < hitbox_upper_bound_x_1 and y < hitbox_up : 
+                                target_window_location = "LeftUp"
+                            elif x > hitbox_upper_bound_x_2 and y < hitbox_up:
+                                target_window_location = "RightUp"
+                            elif hitbox_upper_bound_x_2 > x > hitbox_upper_bound_x_1 and y > hitbox_down :
+                                target_window_location = "Down"
+                            elif x < hitbox_upper_bound_x_1 and  y > hitbox_down :
+                                target_window_location = "LeftDown"
+                            elif x > hitbox_upper_bound_x_2 and  y > hitbox_down :
+                                target_window_location = "RightDown"
                 else : 
                     start = 0
                     kilitlenme = False
+                    target_window_location = None
                     if camera_on_flag_time != 0:
-                        camera_on_flag_time2 = datetime.now() - camera_on_flag_time 
+                        camera_on_flag_time2 = (datetime.now() - camera_on_flag_time ).seconds
+                        print(camera_on_flag_time2)
                 if camera_on_flag_time2 == 6 : 
                     camera_on_flag = False
                 # Display the resulting frame
@@ -879,71 +1029,114 @@ def uav_server():
         conn.close()  # close the connection
 
 def pixhawk_runtime():
-    global mode , camera_on_flag , cruise_angle_deg , a , incoming_attitude_list , incoming_direction
+    global mode , camera_on_flag , cruise_angle_deg , a , incoming_attitude_list , incoming_direction,target_window_location 
     count4 = 0
+    global pitch_cam_angle , roll_cam_angle
+    global landed
+    default_pitch_val_temp = default_pitch_val
+    default_pitch_val_temp2 = default_pitch_val
+    land_flag = False
+    i=0 
     while True:
+
         if incoming_request == "Fight":
-            count4 = count4 + 1
-            if count4 > 10:
-                print(camera_on_flag)
-                count4 = 0
-            if  plane.vehicle.battery.level < 20 and landed == False:
-                plane.set_ap_mode("AUTO")
-                if plane.get_ap_mode() == "AUTO" and land_count <1:
-                    print("RTL mode sended")
-                    if plane.pos_alt_rel > 100:
-                        plane.set_rc_channel(2 , 1200)
-                        time.sleep(1.5)
-                        print(plane.vehicle._pitch)
-                        plane.set_rc_channel(2,)
-                        print(plane.vehicle._pitch)
-                    land_count = land_count + 1
-                    plane.set_ap_mode("RTL")
-                    cmd_set = True
-                    mode = "LAND"
-            relative_pitch = default_pitch_val    
-            if mode == "IDLE":
-                print("Plane is IDLE")
-                print ("Heading to %.0fdeg"%cruise_angle_deg)
-                plane.set_ground_course(cruise_angle_deg, cruise_altitude)
-                time.sleep(5)
-                cruise_angle_deg    += delta_angle_deg
-                a = a+1
-                if a == 2:
-                    mode = "TRACKING"
-            elif mode == "TRACKING":
-                plane.set_ap_mode("FBWB")
-                i=0 
-                roll_val  = default_roll_val
-                
-                if incoming_direction == incoming_attitude_list[0] :
-                    roll_val = 1300
-                    plane.set_rc_channel(4,roll_val)
-                    i = i + 1
-                elif incoming_direction == incoming_attitude_list[1] :
-                    roll_val = 1700
-                    plane.set_rc_channel(4,roll_val)
-                    
-                if i > 30:
-                    incoming_direction = "Turn Left"
-                    i = 0   
-            elif mode == "LAND":
-                if cmd_set == True and plane.vehicle.location.global_relative_frame.alt < 50:
+            if  plane.vehicle.battery.level < 80 and landed == False:
+                    land_flag = True
+                    plane.set_ground_course(plane.att_heading_deg, plane.pos_alt_rel)
+                    time.sleep(0.1)
+                    plane.send_to_landing_point()
+                    #plane.set_ap_mode("GUIDED")
+                    if plane.home_landing_heading_angle > 180:
+                        angle = plane.home_landing_heading_angle - 180
+                    else : 
+                        angle = plane.home_landing_heading_angle + 180
+                    print("Landing angle is {}".format(angle))
+                    #plane.set_ground_course(angle,60)
+                    #time.sleep(1)
+                    turn_flag = False
+                    plane.set_airspeed(14)
+                    land_mission = Command(0,0,0,3,21,0,0,0,0,0,angle,plane.location_home.lat,plane.location_home.lon,0)
+                    plane.mission.add(land_mission)
+                    plane.vehicle.flush()
+                    time.sleep(2)
                     plane.set_ap_mode("AUTO")
+                    while plane.location_current.alt >= 1:
+                        if plane.get_ap_mode() == "RTL":
+                            plane.set_ap_mode("AUTO")
+                        #mavutil.mavlink.MAV_CMD_NAV_LAND = 21
+                        print("Plane is descending")
+                        time.sleep(0.2)
+                        cmd_set = False
+                    if plane.location_current.alt <= 1:
+                        plane.set_airspeed(0)
+                        plane.set_ap_mode("MANUAL")
+                        landed = True
+                        if plane.is_armed() :
+                            """ disarm_cmd = plane.vehicle.message_factory.command_long_send(0,0,400,0,0,0,0,0,0,0,0)
+                            plane.vehicle.send_mavlink(disarm_cmd) """
+                            print("Disarmed")
+                            plane.disarm()
+                        
+                        print("Landing complete")
+            if not camera_on_flag and land_flag == False:
+                relative_pitch = default_pitch_val    
+                if mode == "IDLE":
+                    print("Plane is IDLE")
+                    print ("Heading to %.0fdeg"%cruise_angle_deg)
+                    plane.set_ground_course(cruise_angle_deg, cruise_altitude)
+                    time.sleep(5)
+                    cruise_angle_deg    += delta_angle_deg
+                    a = a+1
+                    if a == 2:
+                        mode = "TRACKING"
+                elif mode == "TRACKING":
+                    
+                    aas = [(39.8575735,32.7880096),(39.8570464,32.8010559),(39.8474262,32.8091240)]
+                    roll_val  = default_roll_val
                     plane.clear_mission()
                     
-                    #cmds = plane.vehicle.commands
-                    land_mission = Command(0,0,0,3, mavutil.mavlink.MAV_CMD_NAV_LAND,0,0,0,0,0,0,plane.location_home.lat,plane.location_home.lon,plane.location_home.alt)
-                    plane.mission.add(land_mission)
-                    #cmds.add(wp)
-                    #cmds.upload()
-                    plane.vehicle.flush()
-                    print("Plane is descending")
-                    cmd_set = False
-                if plane.location_current.alt < 1:
-                    landed = True
-                    plane.set_ap_mode("Manual")
-                    plane.disarm()
+                    
+                    target_location = LocationGlobalRelative(aas[i][0],aas[i][1],incoming_altitude)
+                    i = i + 1
+                    if i == 2:
+                        i = 0
+                    #target_location=LocationGlobalRelative(incoming_latitude,incoming_longitude,incoming_altitude)
+                    #message = Command(0,0,0,mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,0,0,0,5,0,0,incoming_latitude,incoming_longitude,incoming_altitude)
+                    #plane.vehicle.send_mavlink(message)
+                    plane.goto(target_location)
+                    time.sleep(3)
+                    #plane.clear_mission()
+            elif camera_on_flag and land_flag == False:
+                if target_window_location != None : 
+                    print(target_window_location)
+                #plane.clear_mission()
+                plane.set_ap_mode("GUIDED")
+                roll , pitch , yaw = 0,0,0
+                if target_window_location != None:
+                    plane.set_airspeed(25)
+                    if "Left" in target_window_location :
+                        roll_val = 1420
+                        roll = -20
+                        pitch = 0
+                    if "Right" in target_window_location :
+                        roll_val = 1580
+                        roll= 20
+                        pitch = 0
+                    if "Up" in target_window_location:
+                        default_pitch_val_temp = default_pitch_val_temp + 20
+                        pitch = 10
+                    if "Down" in target_window_location: 
+                        pitch = -10
+                        default_pitch_val_temp2 = default_pitch_val_temp - 20
+                    else:
+                        default_pitch_val_temp = default_pitch_val
+                        default_pitch_val_temp2 = default_pitch_val
+                    #plane.send_set_attitude_target(roll,pitch,yaw)
+                    plane.send_set_attitude_target(roll_cam_angle,pitch_cam_angle,yaw)
+                    time.sleep(0.3)
+                    if target_window_location is None :
+                        plane.clear_all_rc_override()
+
                     
         elif incoming_request == "GPS":
             pass  
@@ -954,28 +1147,21 @@ def pixhawk_runtime():
         elif incoming_request == "RTL":
             pass
         elif incoming_request == "Land":
-            plane.set_ap_mode("AUTO")
-            if plane.get_ap_mode() == "AUTO" and land_count <1:
-                print("Plane is started to descend")
-                if plane.pos_alt_rel > 100:
-                    plane.set_rc_channel(2 , 1200)
-                    time.sleep(1.5)
-                    print(plane.vehicle._pitch)
-                    plane.set_rc_channel(2,)
-                    print(plane.vehicle._pitch)
-                land_count = land_count + 1
-                plane.set_ap_mode("RTL")
+            plane.send_to_landing_point()
+            while plane.location_current.alt > 1:
                 plane.set_ap_mode("AUTO")
                 plane.clear_mission()
                 land_mission = Command(0,0,0,3, mavutil.mavlink.MAV_CMD_NAV_LAND,0,0,0,0,0,0,plane.location_home.lat,plane.location_home.lon,plane.location_home.alt)
                 plane.mission.add(land_mission)
                 plane.vehicle.flush()
-                while True:
-                    if plane.location_current.alt < 1:
-                        landed = True
-                        plane.set_ap_mode("Manual")
-                        plane.disarm()
-                        break
+                print("Plane is descending")
+                cmd_set = False
+            if plane.location_current.alt < 1:
+                plane.set_ap_mode("MANUAL")
+                plane.set_airspeed(0)
+                landed = True
+                plane.disarm()
+                print("Landing complete")
 
         elif incoming_request == "Takeoff":
             plane.arm_and_takeoff()#Default to 50 meter altitude
