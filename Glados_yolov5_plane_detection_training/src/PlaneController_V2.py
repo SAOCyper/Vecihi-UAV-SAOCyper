@@ -13,8 +13,10 @@ from pymavlink import mavutil
 import time , socket , threading , pickle , math , psutil , argparse , copy
 import numpy as np 
 import warnings
+from threading import Timer
 import quaternion
 #Camera Global Paremeters
+land_flag = False
 pitch_cam_angle = 0
 roll_cam_angle = 0
 camera_on_flag = False
@@ -23,6 +25,7 @@ lock_on = False
 lock_on_started = False
 lock_on_finished = False
 target_window_location = None
+hedef_genislik , hedef_yukseklik = 0 , 0
 frame = 0
 cap = 0
 temp_m1 = 0.1
@@ -94,7 +97,7 @@ z = 0
 k = 0
 p = 0
 count = 0
-
+takım_numarası = 1
 
 class Plane():
 
@@ -146,7 +149,7 @@ class Plane():
         self.ap_mode            = ''        #- []       Autopilot flight mode
         
         self.mission            = self.vehicle.commands #-- mission items
-        
+        self.battery_level      = 0.0       # %x.x battery level
         self.location_home      = LocationGlobalRelative(0,0,0) #- LocationRelative type home
         self.location_current   = LocationGlobalRelative(0,0,0) #- LocationRelative type current position
         
@@ -193,12 +196,23 @@ class Plane():
                 self.wind_speed         = message.speed
                 self.wind_dir_from_deg  = message.direction % 360
                 self.wind_dir_to_deg    = (self.wind_dir_from_deg + 180) % 360
-                        
-            
+            @self.vehicle.on_message('BATTERY')
+            def listener(vehicle,name,message):
+                self.battery_level = message.battery_level ####HATALI DÜZELT
+
+        print(">> Connection Established")    
         return (self.vehicle)
-        print(">> Connection Established")
+        
     def _load_parameters(self):
         self.vehicle.parameters["RNGFND_LANDING"] = 1
+        self.vehicle.parameters["THR_FAILSAFE"] = 1
+        self.vehicle.parameters["FS_LONG_TIMEOUT"] = 10
+        self.vehicle.parameters["FS_LONG_ACTN"] = 0
+        self.vehicle.parameters["FS_GCS_ENABL"] = 1
+        self.vehicle.parameters["ARSPD_FBW_MIN"] = 15 #This is the slowest flying speed for the vehicle. It should be set at least 25% above the stall speed of the vehicle.
+        self.vehicle.parameters["ARSPD_FBW_MAX"] = 30 #This is the fastest normal flying speed for the vehicle. Normally, 2 times the nominal cruising speed is a good target.
+        self.vehicle.parameters["SCALING_SPEED"] = 25 #IMPORTANT FOR PID VALUES
+        self.vehicle.parameters["ARSPD_USE"] = 1
     def _get_location_metres(self, original_location, dNorth, dEast, is_global=False):
         """
         Returns a Location object containing the latitude/longitude `dNorth` and `dEast` metres from the
@@ -554,7 +568,7 @@ class Plane():
         distance_to_wp = self.distance_to_current_waypoint()
         while distance_to_wp == None :
             distance_to_wp = self.distance_to_current_waypoint()
-        while distance_to_wp > 10 :
+        while distance_to_wp > 15 :
             if plane.get_ap_mode() == "RTL":
                 plane.set_ap_mode("AUTO")
             distance_to_wp = self.distance_to_current_waypoint()
@@ -578,7 +592,6 @@ class Plane():
         )
 
         self.vehicle.send_mavlink(msg)
-
 
 class Camera():
     Angle = 0
@@ -655,7 +668,7 @@ class Camera():
     
     def detect(self):
         global lock_on , lock_on_started , lock_on_finished , camera_on_flag , camera_on_flag_time2 , target_window_location
-        global pitch_cam_angle , roll_cam_angle
+        global pitch_cam_angle , roll_cam_angle , hedef_genislik , hedef_yukseklik
         lock_on_time = 0
         lock_on_waiting_time = 0
         points_x = []
@@ -710,6 +723,8 @@ class Camera():
                         roi_color = frame[y:y+h, x:x+w]
                         end_cord_x = x + w
                         end_cord_y = y + h
+                        hedef_genislik = (end_cord_x - x)
+                        hedef_yukseklik = (end_cord_y - y)
                         self.distance = self.distance_finder(self.focal_length_measured,self.KNOWN_WIDTH,w)
                         dikey = ((end_cord_y - y)/rows)*100
                         yatay = ((end_cord_x - x)/cols)*100
@@ -915,7 +930,8 @@ class TelemetryCreate():
                             "Hedef_merkez_X": 0,
                             "Hedef_merkez_Y": 0,
                             "Hedef_genislik": 0,
-                            "Hedef_yukseklik": 0}
+                            "Hedef_yukseklik": 0,
+                            "GPSSaati":0}
         
     def _GPS_Saati(self):
         time_format = datetime.now().strftime('%H:%M:%S.%f')[:-3]
@@ -931,16 +947,42 @@ class TelemetryCreate():
         time = self._GPS_Saati()
         self.lock_on_finish = {"kilitlenmeBitisZamani":{"saat:{},dakika:{},saniye:{},milisaniye:{}".format(time["saat"],time["dakika"],time["saniye"],time["milisaniye"])}}
         return self.lock_on_finish
-    def Iha_telemetri_bilgi(self,takım_numarası:int,iha_bilgiler:list):
+    def Iha_telemetri_bilgi(self):
+        global takım_numarası , plane ,camera_on_flag , hedef_genislik , hedef_yukseklik , hedef_merkez_x , hedef_merkez_y
         time = self._GPS_Saati()
-        takım_numarası = {"takim_numarasi": takım_numarası}
-        self.takım_numarasi = takım_numarası
-        i = 0
-        for key , value in self.iha_bilgiler.items() :
-            self.iha_bilgiler[key] = iha_bilgiler[i]
-            i=i+1
-        self.telemetry_data = self.takım_numarasi | self.iha_bilgiler | self.gps_saat    
-        print(self.telemetry_data)
+        takim_numarasi = {"takim_numarasi": takım_numarası}
+        self.takım_numarasi = takim_numarasi
+        self.iha_bilgiler["IHA_enlem"] = plane.location_current.lat
+        self.iha_bilgiler["IHA_boylam"] = plane.location_current.lon
+        self.iha_bilgiler["IHA_irtifa"] = plane.location_current.alt
+        self.iha_bilgiler["IHA_dikilme"] = plane.att_pitch_deg
+        self.iha_bilgiler["IHA_yonelme"] = plane.att_heading_deg
+        self.iha_bilgiler["IHA_yatis"] = plane.att_roll_deg
+        self.iha_bilgiler["IHA_hiz"] = plane.airspeed
+        plane.battery_level = plane.vehicle.battery.level
+        self.iha_bilgiler["IHA_batarya"] = plane.battery_level
+        if camera_on_flag == True:
+            kilitlenme = 1
+        else:
+            kilitlenme = 0
+        if plane.get_ap_mode() != "Manual":
+                self.iha_bilgiler["IHA_otonom"] = 1
+        else:
+            self.iha_bilgiler["IHA_otonom"] = 0
+        self.iha_bilgiler["IHA_kilitlenme"] = kilitlenme
+        if kilitlenme == 1:
+            self.iha_bilgiler["Hedef_merkez_X"] = hedef_merkez_x
+            self.iha_bilgiler["Hedef_merkez_Y"] = hedef_merkez_y
+            self.iha_bilgiler["Hedef_genislik"] = hedef_genislik
+            self.iha_bilgiler["Hedef_yukseklik"] = hedef_yukseklik
+        else:
+            self.iha_bilgiler["Hedef_merkez_X"] = 0
+            self.iha_bilgiler["Hedef_merkez_Y"] = 0
+            self.iha_bilgiler["Hedef_genislik"] = 0
+            self.iha_bilgiler["Hedef_yukseklik"] = 0
+        self.iha_bilgiler["GPSSaati"] = self.gps_saat
+        self.telemetry_data = self.takım_numarasi | self.iha_bilgiler    
+        return self.telemetry_data
     def Iha_kilitlenme_bilgi(self):
         global lock_on_started , lock_on_finished , lock_on
         if lock_on== True and lock_on_started == True :
@@ -990,96 +1032,131 @@ class Categorize():
             #DÜZENLE OPTİMİZE ET UÇAKLAR İÇİN FRONT BEHİND İÇİN AYRICA BİR DE YANINA SEÇENEĞİ GETİR
             #print(Camera_angle,In_camera_direction,lock_on_flag)
         return True
-
-
-def uav_server():
-        global data
-        hostname=socket.gethostname()   
-        IPAddr=socket.gethostbyname(hostname) 
-        host_uav = IPAddr  
+lsock_uav = 0
+class UAV_COMM_SERVER():
+    def __init__(self):
+        self.hostname=socket.gethostname()   
+        self.IPAddr=socket.gethostbyname(self.hostname) 
+        self.host_uav = self.IPAddr  
         #host_uav ="192.168.1.27"
-        port_uav = 65433
+        self.port_uav = 65433
+    def _reconnect(self):
+        global lsock_uav
         lsock_uav = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Avoid bind() exception: OSError: [Errno 48] Address already in use
         lsock_uav.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        lsock_uav.bind((host_uav, port_uav))
+        lsock_uav.bind((self.host_uav, self.port_uav))
         lsock_uav.listen(2)
-        print(f"Listening on UAV {(host_uav, port_uav)}")
-        conn, address = lsock_uav.accept()  # accept new connection
-        print("Connection from: " + str(address))
-        data_prev = 0
-        while True:
-            # receive data stream. it won't accept data packet greater than 4096 bytes
+        print(f"Listening on UAV {(self.host_uav, self.port_uav)}")
+        self.conn, self.address = lsock_uav.accept()  # accept new connection
+        print("Connection from: " + str(self.address))
+    def uav_server(self):
+            global data ,lsock_uav
             
-                data = conn.recv(2048)
-                data = pickle.loads(data) 
-                print(data)
-                if data_prev != data:
-                    if type(data) == list:
-                        #behaivour_dict=drive.flight_controller(incoming_data=data)
-                        data_prev = data
-                
-                time.sleep(0.807)
-                if not data:
-                    # if data is not received break
-                    break 
-                print("Incoming Ground Control Station Data")
+            lsock_uav = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Avoid bind() exception: OSError: [Errno 48] Address already in use
+            lsock_uav.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            lsock_uav.settimeout(10)
+            lsock_uav.bind((self.host_uav, self.port_uav))
+            lsock_uav.listen(1)
+            print(f"Listening on UAV {(self.host_uav, self.port_uav)}")
+            self.conn, self.address = lsock_uav.accept()  # accept new connection
+            print("Connection from: " + str(self.address))
+            data_prev = 0
+            conn_status = True
+            while True:
+                # receive data stream. it won't accept data packet greater than 4096 bytes
+                while conn_status :
+                        send = {"Status" : "OK"} 
+                        send = pickle.dumps(send)
+                        try:
+                            self.conn.send(send)
+                            data = self.conn.recv(2048)
+                        except socket.error:
+                            conn_status = False
+                            break
+                        
+                        if len(data) == 0:
+                            print("Disconnected!")
+                            self._reconnect()
+                            continue
+                        data = pickle.loads(data)
+                        
+                        print(data)
+                        if data_prev != data:
+                            if type(data) == list:
+                                #behaivour_dict=drive.flight_controller(incoming_data=data)
+                                data_prev = data
+                        
+                        time.sleep(0.807)
+                        if not data:
+                            self.conn, self.address = lsock_uav.accept()  # accept new connection
+                            # if data is not received break
+                            break
+                        print("Incoming Ground Control Station Data")
+                while conn_status == False:
+                    print("Disconnected!")
+                    self._reconnect()
+                    reconnected = {"Reconnected" : "OK"}
+                    reconnected = pickle.dumps(reconnected)
+                    try:
+                        self.conn.send(reconnected)
+                        conn_status = True
+                        break
+                    except socket.error:
+                        conn_status = False
+                        continue
 
 
-        conn.close()  # close the connection
+            self.conn.close()  # close the connection
 
+def landing_mission():
+    global land_flag
+    land_flag = True
+    plane.set_ground_course(plane.att_heading_deg, plane.pos_alt_rel)
+    time.sleep(0.1)
+    plane.send_to_landing_point()
+    #plane.set_ap_mode("GUIDED")
+    if plane.home_landing_heading_angle > 180:
+        angle = plane.home_landing_heading_angle - 180
+    else : 
+        angle = plane.home_landing_heading_angle + 180
+    print("Landing angle is {}".format(angle))
+    turn_flag = False
+    plane.set_airspeed(14)
+    land_mission = Command(0,0,0,3,21,0,0,0,0,0,angle,plane.location_home.lat,plane.location_home.lon,0)
+    plane.mission.add(land_mission)
+    plane.vehicle.flush()
+    time.sleep(2)
+    plane.set_ap_mode("AUTO")
+    while plane.location_current.alt >= 1:
+        if plane.get_ap_mode() == "RTL":
+            plane.set_ap_mode("AUTO")
+        print("Plane is descending")
+        time.sleep(0.2)
+        cmd_set = False
+    if plane.location_current.alt <= 1:
+        plane.set_airspeed(0)
+        plane.set_ap_mode("MANUAL")
+        landed = True
+        if plane.is_armed() :
+            """ disarm_cmd = plane.vehicle.message_factory.command_long_send(0,0,400,0,0,0,0,0,0,0,0)
+            plane.vehicle.send_mavlink(disarm_cmd) """
+            print("Disarmed")
+            plane.disarm()
+        
+        print("Landing complete")
 def pixhawk_runtime():
-    global mode , camera_on_flag , cruise_angle_deg , a , incoming_attitude_list , incoming_direction,target_window_location 
+    global mode , camera_on_flag , cruise_angle_deg , a , incoming_attitude_list ,target_window_location 
     count4 = 0
     global pitch_cam_angle , roll_cam_angle
-    global landed
-    default_pitch_val_temp = default_pitch_val
-    default_pitch_val_temp2 = default_pitch_val
-    land_flag = False
+    global landed , land_flag
     i=0 
     while True:
-
         if incoming_request == "Fight":
             if  plane.vehicle.battery.level < 80 and landed == False:
-                    land_flag = True
-                    plane.set_ground_course(plane.att_heading_deg, plane.pos_alt_rel)
-                    time.sleep(0.1)
-                    plane.send_to_landing_point()
-                    #plane.set_ap_mode("GUIDED")
-                    if plane.home_landing_heading_angle > 180:
-                        angle = plane.home_landing_heading_angle - 180
-                    else : 
-                        angle = plane.home_landing_heading_angle + 180
-                    print("Landing angle is {}".format(angle))
-                    #plane.set_ground_course(angle,60)
-                    #time.sleep(1)
-                    turn_flag = False
-                    plane.set_airspeed(14)
-                    land_mission = Command(0,0,0,3,21,0,0,0,0,0,angle,plane.location_home.lat,plane.location_home.lon,0)
-                    plane.mission.add(land_mission)
-                    plane.vehicle.flush()
-                    time.sleep(2)
-                    plane.set_ap_mode("AUTO")
-                    while plane.location_current.alt >= 1:
-                        if plane.get_ap_mode() == "RTL":
-                            plane.set_ap_mode("AUTO")
-                        #mavutil.mavlink.MAV_CMD_NAV_LAND = 21
-                        print("Plane is descending")
-                        time.sleep(0.2)
-                        cmd_set = False
-                    if plane.location_current.alt <= 1:
-                        plane.set_airspeed(0)
-                        plane.set_ap_mode("MANUAL")
-                        landed = True
-                        if plane.is_armed() :
-                            """ disarm_cmd = plane.vehicle.message_factory.command_long_send(0,0,400,0,0,0,0,0,0,0,0)
-                            plane.vehicle.send_mavlink(disarm_cmd) """
-                            print("Disarmed")
-                            plane.disarm()
-                        
-                        print("Landing complete")
+                    landing_mission()
             if not camera_on_flag and land_flag == False:
-                relative_pitch = default_pitch_val    
                 if mode == "IDLE":
                     print("Plane is IDLE")
                     print ("Heading to %.0fdeg"%cruise_angle_deg)
@@ -1090,48 +1167,21 @@ def pixhawk_runtime():
                     if a == 2:
                         mode = "TRACKING"
                 elif mode == "TRACKING":
-                    
                     aas = [(39.8575735,32.7880096),(39.8570464,32.8010559),(39.8474262,32.8091240)]
-                    roll_val  = default_roll_val
                     plane.clear_mission()
-                    
-                    
                     target_location = LocationGlobalRelative(aas[i][0],aas[i][1],incoming_altitude)
                     i = i + 1
                     if i == 2:
                         i = 0
-                    #target_location=LocationGlobalRelative(incoming_latitude,incoming_longitude,incoming_altitude)
-                    #message = Command(0,0,0,mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,0,0,0,5,0,0,incoming_latitude,incoming_longitude,incoming_altitude)
-                    #plane.vehicle.send_mavlink(message)
                     plane.goto(target_location)
                     time.sleep(3)
-                    #plane.clear_mission()
             elif camera_on_flag and land_flag == False:
                 if target_window_location != None : 
                     print(target_window_location)
-                #plane.clear_mission()
                 plane.set_ap_mode("GUIDED")
                 roll , pitch , yaw = 0,0,0
                 if target_window_location != None:
                     plane.set_airspeed(25)
-                    if "Left" in target_window_location :
-                        roll_val = 1420
-                        roll = -20
-                        pitch = 0
-                    if "Right" in target_window_location :
-                        roll_val = 1580
-                        roll= 20
-                        pitch = 0
-                    if "Up" in target_window_location:
-                        default_pitch_val_temp = default_pitch_val_temp + 20
-                        pitch = 10
-                    if "Down" in target_window_location: 
-                        pitch = -10
-                        default_pitch_val_temp2 = default_pitch_val_temp - 20
-                    else:
-                        default_pitch_val_temp = default_pitch_val
-                        default_pitch_val_temp2 = default_pitch_val
-                    #plane.send_set_attitude_target(roll,pitch,yaw)
                     plane.send_set_attitude_target(roll_cam_angle,pitch_cam_angle,yaw)
                     time.sleep(0.3)
                     if target_window_location is None :
@@ -1139,32 +1189,17 @@ def pixhawk_runtime():
 
                     
         elif incoming_request == "GPS":
-            pass  
+            pass  ##Yukarıdaki Tracking mode olarak kullanılacak
         elif incoming_request == "Escape":
-            pass
+            pass  ##Kaçışları oluştur
         elif incoming_request == "Kamikaze":
             pass
         elif incoming_request == "RTL":
-            pass
+            plane.set_ap_mode("RTL")
         elif incoming_request == "Land":
-            plane.send_to_landing_point()
-            while plane.location_current.alt > 1:
-                plane.set_ap_mode("AUTO")
-                plane.clear_mission()
-                land_mission = Command(0,0,0,3, mavutil.mavlink.MAV_CMD_NAV_LAND,0,0,0,0,0,0,plane.location_home.lat,plane.location_home.lon,plane.location_home.alt)
-                plane.mission.add(land_mission)
-                plane.vehicle.flush()
-                print("Plane is descending")
-                cmd_set = False
-            if plane.location_current.alt < 1:
-                plane.set_ap_mode("MANUAL")
-                plane.set_airspeed(0)
-                landed = True
-                plane.disarm()
-                print("Landing complete")
-
+            landing_mission()
         elif incoming_request == "Takeoff":
-            plane.arm_and_takeoff()#Default to 50 meter altitude
+            plane.arm_and_takeoff() #Default to 50 meter altitude
         elif incoming_request == "Guided":
             plane.set_ap_mode("GUIDED")         
         elif incoming_request == "Loiter":
@@ -1174,13 +1209,22 @@ def pixhawk_runtime():
             plane.clear_mission()
             while incoming_request == "Manual":
                 pass
-        """ while True:
-            target_location=LocationGlobalRelative(lat=target_lat,lon=target_lon,alt=target_alt)
-            plane.goto() """
+class RepeatTimer(Timer):  
+    def run(self):  
+        while not self.finished.wait(self.interval):  
+            self.function(*self.args,**self.kwargs)  
+            print(' ')  
+
+ongoing_telemetry_data = 0
+def send_telemetry_data():
+    global telemetry_packager , ongoing_telemetry_data , uav_server_object
+    ongoing_telemetry_data = telemetry_packager.Iha_telemetri_bilgi()
+    ongoing_telemetry_data = pickle.dumps(ongoing_telemetry_data)
+    uav_server_object.conn.send(ongoing_telemetry_data)
+    return True
 if __name__ == "__main__":
-    
-    #start = datetime.now()
     telemetry_packager = TelemetryCreate()
+    uav_server_object = UAV_COMM_SERVER()
     drive = Categorize(team_number=team_number)
     drive_thread = threading.Thread(target=drive.create_decision)
     drive_thread.start()
@@ -1188,7 +1232,7 @@ if __name__ == "__main__":
     camerathread = threading.Thread(target=camera.detect)
     #camerathread.setDaemon(True)
     camerathread.start()
-    thread1 = threading.Thread(target=uav_server)
+    thread1 = threading.Thread(target=uav_server_object.uav_server)
     thread1.start()
     parser = argparse.ArgumentParser()
     parser.add_argument('--connect', default='tcp:127.0.0.1:5762')
@@ -1196,6 +1240,8 @@ if __name__ == "__main__":
     connection_string = args.connect
     #-- Create the object
     plane = Plane(connection_string)
+    timer = RepeatTimer(1,send_telemetry_data)  
+    timer.start() #recalling run
     while incoming_request != "Proceed":
         print("Waiting for proceed command")
         time.sleep(1)
@@ -1203,13 +1249,9 @@ if __name__ == "__main__":
     if not plane.is_armed(): plane.arm_and_takeoff()
     time.sleep(5)
     #-- Set in Guided and test the ground course
-    plane.set_ap_mode("GUIDED")
-    a = 0 ###TEMP DELETE LATER
-    incoming_direction = "Turn Right"
-    plane.set_rc_channel(4,default_pitch_val)
     pixhawk_thread = threading.Thread(target=pixhawk_runtime)
     pixhawk_thread.start()
-    #print(datetime.now() - start)
+
     
         
 

@@ -614,53 +614,63 @@ class Categorize():
         global in_range_list ,mission_start,message_ready,client_socket_uav
         global rtl_cmd,escape_cmd,guided_cmd,loiter_cmd,Manual_cmd,kamikaze_cmd,otonom_iniş_cmd,otonom_kalkış_cmd,otonom_it_dalaşı_cmd
         startup_flag = False
+        
         print(in_range_list,point_to_track)
-        if in_range_list[0] == -1 or in_range_list[1] == -1 or in_range_list[2] == -1: 
-            startup_flag = True 
-            if mission_start == True:
-                mission_start = False
-                incoming_request = "Proceed"
-        elif in_range_list[0] != 0 or in_range_list[1] != 0 or in_range_list[2] != 0 :
-            escape_cmd = True
-            incoming_request = "Escape"
-        else:
-            incoming_request = "Fight"
-            escape_cmd = False 
-            if kamikaze_cmd == True:
-                incoming_request = "Kamikaze"
-                kamikaze_cmd = False
-            elif rtl_cmd == True :
-                incoming_request = "RTL"
-                rtl_cmd = False
-            elif otonom_iniş_cmd == True:
-                incoming_request = "Land"
-                otonom_iniş_cmd = False
-            elif otonom_it_dalaşı_cmd == True:
+        if mission_start == False:
+            startup_flag = False
+            if in_range_list[0] == -1 or in_range_list[1] == -1 or in_range_list[2] == -1: 
+                startup_flag = True 
+                if mission_start == True:
+                    mission_start = False
+                    incoming_request = "Proceed"
+            elif in_range_list[0] != 0 or in_range_list[1] != 0 or in_range_list[2] != 0 :
+                escape_cmd = True
+                incoming_request = "Escape"
+            else:
                 incoming_request = "Fight"
-                otonom_it_dalaşı_cmd = False
-            elif otonom_kalkış_cmd == True:
-                incoming_request == "Takeoff"
-                otonom_kalkış_cmd = False
-            elif guided_cmd == True:
-                incoming_request == "Guided"
-                guided_cmd = False
-            elif loiter_cmd == True:
-                incoming_request = "Loiter"
-                loiter_cmd = False
-            elif Manual_cmd == True:
-                incoming_request == "Manual"
-                Manual_cmd = False
-            incoming_attitude = None
+                escape_cmd = False 
+                if kamikaze_cmd == True:
+                    incoming_request = "Kamikaze"
+                    kamikaze_cmd = False
+                elif rtl_cmd == True :
+                    incoming_request = "RTL"
+                    rtl_cmd = False
+                elif otonom_iniş_cmd == True:
+                    incoming_request = "Land"
+                    otonom_iniş_cmd = False
+                elif otonom_it_dalaşı_cmd == True:
+                    incoming_request = "Fight"
+                    otonom_it_dalaşı_cmd = False
+                elif otonom_kalkış_cmd == True:
+                    incoming_request == "Takeoff"
+                    otonom_kalkış_cmd = False
+                elif guided_cmd == True:
+                    incoming_request == "Guided"
+                    guided_cmd = False
+                elif loiter_cmd == True:
+                    incoming_request = "Loiter"
+                    loiter_cmd = False
+                elif Manual_cmd == True:
+                    incoming_request == "Manual"
+                    Manual_cmd = False
+                incoming_attitude = None
+        if mission_start:
+            startup_flag = True
+            mission_start = False
+            incoming_request = "Proceed"
         if startup_flag == False:
             tx_data = {"incoming_request":incoming_request,"incoming_altitude":incoming_altitude,"incoming_latitude":incoming_latitude,"incoming_longitude":incoming_longitude,"incoming_distance":incoming_distance,"incoming_enemy_id":incoming_enemy_id}
         elif startup_flag == True:
             startup_flag = False
-            tx_data = {"incoming_request":incoming_request,"incoming_altitude":incoming_altitude,"incoming_latitude":incoming_latitude,"incoming_longitude":incoming_longitude,"incoming_distance":incoming_distance,"incoming_enemy_id":incoming_enemy_id}
+            tx_data = {"incoming_request":incoming_request,"incoming_altitude":incoming_altitude,"incoming_latitude":incoming_latitude,"incoming_longitude":incoming_longitude,"incoming_distance":incoming_distance,"incoming_enemy_id":incoming_enemy_id}    
         message_ready = True
         if message_ready == True:
             time.sleep(0.05)
             tx_data = pickle.dumps(tx_data)
             client_socket_uav.send(tx_data)  # send message
+            received_response = client_socket_uav.recv(2048)
+            received_response = pickle.loads(received_response)
+            print(received_response)
         return tx_data    
 
     def flight_controller(self):
@@ -1140,7 +1150,6 @@ class Window(Categorize):
         self.update2()
         #self.map_widget.after(1, self.update,team_number)
     
-
     def run(self):
         #self.t = threading.Thread(target=self.__camera)
         #self.t.setDaemon(True)
@@ -1149,7 +1158,6 @@ class Window(Categorize):
         self.widget_thread.setDaemon(True)
         self.widget_thread.start()
         self.mainWindow.mainloop()
-
     def update(self,team_number):
         global mode
         self._time()
@@ -1157,11 +1165,9 @@ class Window(Categorize):
         state_1.config(width=30,height=4)
         state_1.grid(row=2,column=2)
         self.map_widget.after(30, self.update,team_number)
-
     def update2(self):
         categorized_data = self.categorization.flight_controller()
         self.map_widget.after(1000, self.update2)
-
     def widget_update(self):
             global start2 
             global our_telemetry
